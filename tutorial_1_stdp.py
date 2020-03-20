@@ -103,33 +103,26 @@ cs_model = create_custom_current_source_class(
 model = GeNNModel("float", "tutorial_1")
 model.dT = TIMESTEP
 
-# Load weights
-weights = []
-while True:
-    filename = "weights_%u_%u.npy" % (len(weights), len(weights) + 1)
-    if path.exists(filename):
-        weights.append(np.load(filename))
-    else:
-        break
-
 # Initial values to initialise all neurons to
 if_init = {"V": 0.0, "SpikeCount":0}
 stdp_init = {"g": init_var("Uniform", {"min": 0.0, "max": STDP_PARAMS["gmax"]})}
 stdp_pre_init = {"apre": 0.0}
 stdp_post_init = {"apost": 0.0}
 
+neurons_count = [784, 128, 10]
+
 # Create first neuron layer
-neuron_layers = [model.add_neuron_population("neuron0", weights[0].shape[0],
+neuron_layers = [model.add_neuron_population("neuron0", neurons_count[0],
                                              if_model, IF_PARAMS, if_init)]
 
 # Create subsequent neuron layer
-for i, w in enumerate(weights):
-    neuron_layers.append(model.add_neuron_population("neuron%u" % (i + 1),
-                                                     w.shape[1], if_model,
+for i in range(1, len(neurons_count)):
+    neuron_layers.append(model.add_neuron_population("neuron%u" % (i),
+                                                     neurons_count[i], if_model,
                                                      IF_PARAMS, if_init))
 
 # Create synaptic connections between layers
-for i, (pre, post, w) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:], weights)):
+for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
     model.add_synapse_population(
         "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
         pre, post,
@@ -151,9 +144,9 @@ model.load()
 testing_images = np.load("testing_images.npy")
 testing_labels = np.load("testing_labels.npy")
 
-# Check dimensions match network
-assert testing_images.shape[1] == weights[0].shape[0]
-assert np.max(testing_labels) == (weights[1].shape[1] - 1)
+# # Check dimensions match network
+# assert testing_images.shape[1] == weights[0].shape[0]
+# assert np.max(testing_labels) == (weights[1].shape[1] - 1)
 
 # Set current input by scaling first image
 current_input.vars["magnitude"].view[:] = testing_images[0] * INPUT_CURRENT_SCALE
