@@ -2,3 +2,4 @@
 /tutorial_2_CODE/
 mnist/*
 !mnist/readme.md
+training.csv

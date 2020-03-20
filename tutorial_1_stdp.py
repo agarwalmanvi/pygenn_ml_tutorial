@@ -6,6 +6,8 @@ from pygenn.genn_model import (create_custom_neuron_class,
                                GeNNModel, init_var)
 from pygenn.genn_wrapper import NO_DELAY
 from mlxtend.data import loadlocal_mnist
+import pickle
+import csv
 
 # ----------------------------------------------------------------------------
 # Parameters
@@ -152,61 +154,86 @@ print("Loading training labels of size: " + str(y.shape))
 # ----------------------------------------------------------------------------
 # Simulate
 # ----------------------------------------------------------------------------
-# Load testing data
-testing_images = np.load("testing_images.npy")
-testing_labels = np.load("testing_labels.npy")
+# Get views to efficiently access state variables
+current_input_magnitude = current_input.vars["magnitude"].view
+output_spike_count = neuron_layers[-1].vars["SpikeCount"].view
+layer_voltages = [l.vars["V"].view for l in neuron_layers]
 
-# # Check dimensions match network
-# assert testing_images.shape[1] == weights[0].shape[0]
-# assert np.max(testing_labels) == (weights[1].shape[1] - 1)
+csv_filename = 'training.csv'
 
-# Set current input by scaling first image
-current_input.vars["magnitude"].view[:] = testing_images[0] * INPUT_CURRENT_SCALE
-
-# Upload
-model.push_var_to_device("current_input", "magnitude")
+with open(csv_filename, 'w') as f:
+    csv_write = csv.writer(f)
+    csv_write.writerow(["example", "label", "reactive_neuron"])
 
 # Simulate
-layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
-while model.timestep < PRESENT_TIMESTEPS:
+while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
+    # Calculate the timestep within the presentation
+    timestep_in_example = model.timestep % PRESENT_TIMESTEPS
+    example = int(model.timestep // PRESENT_TIMESTEPS)
+
+    # If this is the first timestep of presenting the example
+    if timestep_in_example == 0:
+        print("Example: " + str(example))
+        current_input_magnitude[:] = X[example, :].flatten() * INPUT_CURRENT_SCALE
+        model.push_var_to_device("current_input", "magnitude")
+
+        # Loop through all layers and their corresponding voltage views
+        for l, v in zip(neuron_layers, layer_voltages):
+            # Manually 'reset' voltage
+            v[:] = 0.0
+
+            # Upload
+            model.push_var_to_device(l.name, "V")
+
+        # Zero spike count
+        output_spike_count[:] = 0
+        model.push_var_to_device(neuron_layers[-1].name, "SpikeCount")
+
     # Advance simulation
     model.step_time()
 
-    # Loop through neuron layers
-    for i, l in enumerate(neuron_layers):
-        # Download spikes
-        model.pull_current_spikes_from_device(l.name)
+    # If this is the LAST timestep of presenting the example
+    if timestep_in_example == (PRESENT_TIMESTEPS - 1):
 
-        # Add to data structure
-        spike_times = np.ones_like(l.current_spikes) * model.t
-        layer_spikes[i] = (np.hstack((layer_spikes[i][0], l.current_spikes)),
-                           np.hstack((layer_spikes[i][1], spike_times)))
+        # Download spike count from last layer
+        model.pull_var_from_device(neuron_layers[-1].name, "SpikeCount")
 
-# ----------------------------------------------------------------------------
-# Plotting
-# ----------------------------------------------------------------------------
-import matplotlib.pyplot as plt
+        true_label = y[example]
+        most_reactive_neuron = np.argmax(output_spike_count)
 
-# Create a plot with axes for each
-fig, axes = plt.subplots(len(neuron_layers), sharex=True)
+        data_to_save = [example, true_label, most_reactive_neuron]
 
+        with open(csv_filename, 'a') as f:
+            csv_writer = csv.writer(f)
+            csv_writer.writerow(data_to_save)
 
-# Loop through axes and their corresponding neuron populations
-for a, s, l in zip(axes, layer_spikes, neuron_layers):
-    # Plot spikes
-    a.scatter(s[1], s[0], s=1)
+print("Completed training.")
 
-    # Set title, axis labels
-    a.set_title(l.name)
-    a.set_ylabel("Spike number")
-    a.set_xlim((0, PRESENT_TIMESTEPS * TIMESTEP))
-    a.set_ylim((0, l.size))
-
-
-# Add an x-axis label and translucent line showing the correct label
-axes[-1].set_xlabel("Time [ms]")
-axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
-                linestyle="--", color="gray", alpha=0.2)
-
-# Show plot
-plt.show()
+# # ----------------------------------------------------------------------------
+# # Plotting
+# # ----------------------------------------------------------------------------
+# import matplotlib.pyplot as plt
+#
+# # Create a plot with axes for each
+# fig, axes = plt.subplots(len(neuron_layers), sharex=True)
+#
+#
+# # Loop through axes and their corresponding neuron populations
+# for a, s, l in zip(axes, layer_spikes, neuron_layers):
+#     # Plot spikes
+#     a.scatter(s[1], s[0], s=1)
+#
+#     # Set title, axis labels
+#     a.set_title(l.name)
+#     a.set_ylabel("Spike number")
+#     a.set_xlim((0, PRESENT_TIMESTEPS * TIMESTEP))
+#     a.set_ylim((0, l.size))
+#
+#
+# # Add an x-axis label and translucent line showing the correct label
+# axes[-1].set_xlabel("Time [ms]")
+# axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
+#                 linestyle="--", color="gray", alpha=0.2)
+#
+# # Show plot
+# plt.show()
