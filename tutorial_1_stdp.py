@@ -3,7 +3,7 @@ from os import path
 
 from pygenn.genn_model import (create_custom_neuron_class,
                                create_custom_current_source_class, create_custom_weight_update_class,
-                               GeNNModel)
+                               GeNNModel, init_var)
 from pygenn.genn_wrapper import NO_DELAY
 
 # ----------------------------------------------------------------------------
@@ -30,7 +30,7 @@ if_model = create_custom_neuron_class(
     "if_model",
     param_names=["Vthr"],
     var_name_types=[("V", "scalar"), ("SpikeCount", "unsigned int")],
-    sim_code="$(V) += $(Isyn) * DT",
+    sim_code="$(V) += $(Isyn) * DT;",
     reset_code="""
     $(V) = 0.0;
     $(SpikeCount)++;
@@ -71,21 +71,21 @@ stdp_model = create_custom_weight_update_class(
         """
         $(addToInSyn, $(g));
         const scalar deltat = $(t) - $(sT_post);
-        const scalar tracepost = $(apost) * exp( - $(taupost) * deltat)
+        const scalar tracepost = $(apost) * exp( - $(taupost) * deltat);
         const scalar newg = $(g) + tracepost;
         $(g) = $(gmax) <= newg ? $(gmax) : newg;
         """,
     learn_post_code=
         """
         const scalar deltat = $(t) - $(sT_pre);
-        const scalar tracepre = $(apre) * exp( - $(taupre) * deltat)
+        const scalar tracepre = $(apre) * exp( - $(taupre) * deltat);
         const scalar newg = $(g) + tracepre;
         $(g) = $(gmax) <= newg ? $(gmax) : newg;
         """,
     pre_spike_code=
-        """ $(apre) += 0.1 """,
+        """ $(apre) += 0.1;""",
     post_spike_code=
-        """ $(apost) -= 0.105 """,
+        """ $(apost) -= 0.105;""",
     is_pre_spike_time_required=True,
     is_post_spike_time_required=True
 )
@@ -114,7 +114,7 @@ while True:
 
 # Initial values to initialise all neurons to
 if_init = {"V": 0.0, "SpikeCount":0}
-stdp_init = {"g": genn_model.init_var("Uniform", {"min": 0.0, "max": STDP_PARAMS["gmax"]})}
+stdp_init = {"g": init_var("Uniform", {"min": 0.0, "max": STDP_PARAMS["gmax"]})}
 stdp_pre_init = {"apre": 0.0}
 stdp_post_init = {"apost": 0.0}
 
