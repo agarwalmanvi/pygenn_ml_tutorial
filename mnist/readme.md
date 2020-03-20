@@ -1,0 +1,1 @@
+Download and the MNIST files from [here](http://yann.lecun.com/exdb/mnist/), and extract them to this folder.

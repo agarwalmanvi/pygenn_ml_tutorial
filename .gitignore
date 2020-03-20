@@ -1,2 +1,4 @@
 /tutorial_1_CODE/
 /tutorial_2_CODE/
+mnist/*
+!mnist/readme.md
