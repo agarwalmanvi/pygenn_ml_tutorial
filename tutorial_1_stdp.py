@@ -5,6 +5,7 @@ from pygenn.genn_model import (create_custom_neuron_class,
                                create_custom_current_source_class, create_custom_weight_update_class,
                                GeNNModel, init_var)
 from pygenn.genn_wrapper import NO_DELAY
+from mlxtend.data import loadlocal_mnist
 
 # ----------------------------------------------------------------------------
 # Parameters
@@ -136,6 +137,17 @@ current_input = model.add_current_source("current_input", cs_model,
 # Build and load our model
 model.build()
 model.load()
+
+# ----------------------------------------------------------------------------
+# Import training data
+# ----------------------------------------------------------------------------
+data_dir = "/home/manvi/Documents/pygenn_ml_tutorial/mnist"
+X, y = loadlocal_mnist(
+        images_path=path.join(data_dir, 'train-images-idx3-ubyte'),
+        labels_path=path.join(data_dir, 'train-labels-idx1-ubyte'))
+
+print("Loading training images of size: " + str(X.shape))
+print("Loading training labels of size: " + str(y.shape))
 
 # ----------------------------------------------------------------------------
 # Simulate
