@@ -2,7 +2,7 @@ import numpy as np
 from os import path
 
 from pygenn.genn_model import (create_custom_neuron_class,
-                               create_custom_current_source_class,
+                               create_custom_current_source_class, create_custom_weight_update_class,
                                GeNNModel)
 from pygenn.genn_wrapper import NO_DELAY
 
@@ -10,6 +10,14 @@ from pygenn.genn_wrapper import NO_DELAY
 # Parameters
 # ----------------------------------------------------------------------------
 IF_PARAMS = {"Vthr": 5.0}
+# STDP_PARAMS = {"gmax": 1.0,
+#                "taupre": 2.0,
+#                "taupost": 2.0,
+#                "incpre": 0.1,
+#                "incpost": -0.105}
+STDP_PARAMS = {"gmax": 1.0,
+               "taupre": 2.0,
+               "taupost": 2.0}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 INPUT_CURRENT_SCALE = 1.0 / 100.0
@@ -22,12 +30,65 @@ if_model = create_custom_neuron_class(
     "if_model",
     param_names=["Vthr"],
     var_name_types=[("V", "scalar"), ("SpikeCount", "unsigned int")],
-    sim_code="$(V) += $(Isyn) * DT;",
+    sim_code="$(V) += $(Isyn) * DT",
     reset_code="""
     $(V) = 0.0;
     $(SpikeCount)++;
     """,
     threshold_condition_code="$(V) >= $(Vthr)")
+
+# stdp_model = create_custom_weight_update_class(
+#     "stdp_model",
+#     param_names=["gmax", "taupre", "taupost", "incpre", "incpost"],
+#     var_name_types=[("g", "scalar"), ("apre", "scalar"), ("apost", "scalar")],
+#     sim_code=
+#         """
+#         $(addToInSyn, $(g));
+#         $(apre) += -$(apre) / $(taupre) * DT;
+#         $(apost) += -$(apost) / $(taupost) * DT
+#         """,
+#     learn_post_code=
+#         """$(apost) += $(incpost);
+#         const scalar newg = $(g) + $(apre);
+#         $(g) = $(gmax) <= newg ? $(gmax) : newg;
+#         """,
+#     pre_spike_code=
+#         """$(apre) += $(incpre);
+#         const scalar newg = g + $(apost);
+#         $(g) = $(gmax) <= newg ? $(gmax) : newg;
+#         """,
+#     is_pre_spike_time_required=True,
+#     is_post_spike_time_required=True
+# )
+
+stdp_model = create_custom_weight_update_class(
+    "stdp_model",
+    param_names=["gmax", "taupre", "taupost"],
+    var_name_types=[("g", "scalar")],
+    pre_var_name_types=[("apre", "scalar")],
+    post_var_name_types=[("apost", "scalar")],
+    sim_code=
+        """
+        $(addToInSyn, $(g));
+        const scalar deltat = $(t) - $(sT_post);
+        const scalar tracepost = $(apost) * exp( - $(taupost) * deltat)
+        const scalar newg = $(g) + tracepost;
+        $(g) = $(gmax) <= newg ? $(gmax) : newg;
+        """,
+    learn_post_code=
+        """
+        const scalar deltat = $(t) - $(sT_pre);
+        const scalar tracepre = $(apre) * exp( - $(taupre) * deltat)
+        const scalar newg = $(g) + tracepre;
+        $(g) = $(gmax) <= newg ? $(gmax) : newg;
+        """,
+    pre_spike_code=
+        """ $(apre) += 0.1 """,
+    post_spike_code=
+        """ $(apost) -= 0.105 """,
+    is_pre_spike_time_required=True,
+    is_post_spike_time_required=True
+)
 
 # Current source model which injects current with a magnitude specified by a state variable
 cs_model = create_custom_current_source_class(
@@ -53,6 +114,9 @@ while True:
 
 # Initial values to initialise all neurons to
 if_init = {"V": 0.0, "SpikeCount":0}
+stdp_init = {"g": genn_model.init_var("Uniform", {"min": 0.0, "max": STDP_PARAMS["gmax"]})}
+stdp_pre_init = {"apre": 0.0}
+stdp_post_init = {"apost": 0.0}
 
 # Create first neuron layer
 neuron_layers = [model.add_neuron_population("neuron0", weights[0].shape[0],
@@ -69,7 +133,7 @@ for i, (pre, post, w) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:], we
     model.add_synapse_population(
         "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
         pre, post,
-        "StaticPulse", {}, {"g": w.flatten()}, {}, {},
+        stdp_model, STDP_PARAMS, stdp_init, stdp_pre_init, stdp_post_init,
         "DeltaCurr", {}, {})
 
 # Create current source to deliver input to first layers of neurons
