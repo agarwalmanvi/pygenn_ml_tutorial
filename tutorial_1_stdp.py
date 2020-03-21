@@ -8,6 +8,7 @@ from pygenn.genn_wrapper import NO_DELAY
 from mlxtend.data import loadlocal_mnist
 import pickle
 import csv
+import matplotlib.pyplot as plt
 
 # ----------------------------------------------------------------------------
 # Parameters
@@ -126,11 +127,18 @@ for i in range(1, len(neurons_count)):
 
 # Create synaptic connections between layers
 for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
-    model.add_synapse_population(
-        "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
-        pre, post,
-        stdp_model, STDP_PARAMS, stdp_init, stdp_pre_init, stdp_post_init,
-        "DeltaCurr", {}, {})
+    if i == 0:
+        synapses = [model.add_synapse_population(
+            "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
+            pre, post,
+            stdp_model, STDP_PARAMS, stdp_init, stdp_pre_init, stdp_post_init,
+            "DeltaCurr", {}, {})]
+    else:
+        synapses.append(model.add_synapse_population(
+            "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
+            pre, post,
+            stdp_model, STDP_PARAMS, stdp_init, stdp_pre_init, stdp_post_init,
+            "DeltaCurr", {}, {}))
 
 # Create current source to deliver input to first layers of neurons
 current_input = model.add_current_source("current_input", cs_model,
@@ -147,6 +155,10 @@ data_dir = "/home/manvi/Documents/pygenn_ml_tutorial/mnist"
 X, y = loadlocal_mnist(
         images_path=path.join(data_dir, 'train-images-idx3-ubyte'),
         labels_path=path.join(data_dir, 'train-labels-idx1-ubyte'))
+
+# reduce the dataset so that we can plot it periodically and see what's happening in the network
+X = X[:50, :]
+y = y[:50]
 
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
@@ -173,6 +185,11 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
     # If this is the first timestep of presenting the example
     if timestep_in_example == 0:
+
+        # init a data structure for plotting the raster plots for this example
+        layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
+        # synapse_weights = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
+
         print("Example: " + str(example))
         current_input_magnitude[:] = X[example, :].flatten() * INPUT_CURRENT_SCALE
         model.push_var_to_device("current_input", "magnitude")
@@ -192,6 +209,16 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # Advance simulation
     model.step_time()
 
+    # populate the raster plot data structure with the spikes of this example and this timestep
+    for i, l in enumerate(neuron_layers):
+        # Download spikes
+        model.pull_current_spikes_from_device(l.name)
+
+        # Add to data structure
+        spike_times = np.ones_like(l.current_spikes) * model.t
+        layer_spikes[i] = (np.hstack((layer_spikes[i][0], l.current_spikes)),
+                           np.hstack((layer_spikes[i][1], spike_times)))
+
     # If this is the LAST timestep of presenting the example
     if timestep_in_example == (PRESENT_TIMESTEPS - 1):
 
@@ -206,6 +233,35 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         with open(csv_filename, 'a') as f:
             csv_writer = csv.writer(f)
             csv_writer.writerow(data_to_save)
+
+        # Make a plot every 10th example
+        if example % 10 == 0:
+
+            print("Creating plot")
+
+            # Create a plot with axes for each
+            fig, axes = plt.subplots(len(neuron_layers), sharex=True)
+
+
+            # Loop through axes and their corresponding neuron populations
+            for a, s, l in zip(axes, layer_spikes, neuron_layers):
+                # Plot spikes
+                a.scatter(s[1], s[0], s=1)
+
+                # Set title, axis labels
+                a.set_title(l.name)
+                a.set_ylabel("Spike number")
+                a.set_xlim((0, PRESENT_TIMESTEPS * TIMESTEP))
+                a.set_ylim((0, l.size))
+
+
+            # Add an x-axis label and translucent line showing the correct label
+            axes[-1].set_xlabel("Time [ms]")
+            # axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
+            #                 linestyle="--", color="gray", alpha=0.2)
+
+            # Show plot
+            plt.savefig('example' + str(example) + '.png')
 
 print("Completed training.")
 
