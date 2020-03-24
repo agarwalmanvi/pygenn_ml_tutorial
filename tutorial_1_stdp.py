@@ -6,7 +6,6 @@ from pygenn.genn_model import (create_custom_neuron_class,
                                GeNNModel, init_var)
 from pygenn.genn_wrapper import NO_DELAY
 from mlxtend.data import loadlocal_mnist
-import pickle
 import csv
 import matplotlib.pyplot as plt
 
