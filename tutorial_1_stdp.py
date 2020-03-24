@@ -65,6 +65,7 @@ if_model = create_custom_neuron_class(
 #     is_post_spike_time_required=True
 # )
 
+# TODO add external stimulation for target neuron
 stdp_model = create_custom_weight_update_class(
     "stdp_model",
     param_names=["gmax", "taupre", "taupost"],
