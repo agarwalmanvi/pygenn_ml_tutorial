@@ -23,7 +23,7 @@ STDP_PARAMS = {"gmax": 1.0,
                "taupost": 4.0,
                "gmin": 0.0}
 TIMESTEP = 1.0
-PRESENT_TIMESTEPS = 20
+PRESENT_TIMESTEPS = 100
 # INPUT_CURRENT_SCALE = 1.0 / 200.0
 # OUTPUT_CURRENT_SCALE = 10000.0
 INPUT_CURRENT_SCALE = 1.0 / 100.0
@@ -118,7 +118,7 @@ output_cs_model = create_custom_current_source_class(
 model = GeNNModel("float", "tutorial_1")
 model.dT = TIMESTEP
 
-# Initial values to initialise all neurons to
+# Initial values for initialisation
 if_init = {"V": 0.0, "SpikeCount":0}
 stdp_init = {"g": init_var("Uniform", {"min": 0.0, "max": STDP_PARAMS["gmax"]})}
 stdp_pre_init = {"apre": 0.0}
@@ -165,9 +165,9 @@ X, y = loadlocal_mnist(
         images_path=path.join(data_dir, 'train-images-idx3-ubyte'),
         labels_path=path.join(data_dir, 'train-labels-idx1-ubyte'))
 
-# reduce the dataset so that we can plot it periodically and see what's happening in the network
-# X = X[:100, :]
-# y = y[:100]
+# # reduce the dataset so that we can plot it periodically and see what's happening in the network
+# X = X[:10, :]
+# y = y[:10]
 
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
@@ -369,99 +369,13 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
 print("Completed training.")
 
-# ----------------------------------------------------------------------------
-# Testing
-# ----------------------------------------------------------------------------
-output_spike_count = neuron_layers[-1].vars["SpikeCount"].view
-# Turn off external stimulation to output neurons
-current_output_co_magnitude[:] = 0.0
-# Turn off STDP updates
-for i, s in enumerate(synapses):
+for i, l in enumerate(synapses):
 
+    model.pull_var_from_device(l.name, "g")
 
-X, y = loadlocal_mnist(
-        images_path=path.join(data_dir, 't10k-images-idx3-ubyte'),
-        labels_path=path.join(data_dir, 't10k-labels-idx1-ubyte'))
+    weight_values = l.get_var_values("g")
+    print(type(weight_values))
+    print(weight_values.shape)
+    np.save("w_"+str(i)+"_"+str(i+1)+".npy", weight_values)
 
-print("Loading testing images of size: " + str(X.shape))
-print("Loading testing labels of size: " + str(y.shape))
-
-# X = X[:100, :]
-# y = y[:100]
-
-print("\n")
-print("Start testing...")
-
-num_correct = 0
-while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
-    # Calculate the timestep within the presentation
-    timestep_in_example = model.timestep % PRESENT_TIMESTEPS
-    example = int(model.timestep // PRESENT_TIMESTEPS)
-
-    # If this is the first timestep of presenting the example
-    if timestep_in_example == 0:
-        current_input_magnitude[:] = X[example] * INPUT_CURRENT_SCALE
-        model.push_var_to_device("current_input", "magnitude")
-
-        # Loop through all layers and their corresponding voltage views
-        for l, v in zip(neuron_layers, layer_voltages):
-            # Manually 'reset' voltage
-            v[:] = 0.0
-
-            # Upload
-            model.push_var_to_device(l.name, "V")
-
-        # Zero spike count
-        output_spike_count[:] = 0
-        model.push_var_to_device(neuron_layers[-1].name, "SpikeCount")
-
-    # Advance simulation
-    model.step_time()
-
-    # If this is the LAST timestep of presenting the example
-    if timestep_in_example == (PRESENT_TIMESTEPS - 1):
-        # Download spike count from last layer
-        model.pull_var_from_device(neuron_layers[-1].name, "SpikeCount")
-
-        # Find which neuron spiked the most to get prediction
-        predicted_label = np.argmax(output_spike_count)
-        true_label = y[example]
-
-        print("\tExample=%u, true label=%u, predicted label=%u" % (example,
-                                                                   true_label,
-                                                                   predicted_label))
-
-        if predicted_label == true_label:
-            num_correct += 1
-
-print("Accuracy %f%%" % ((num_correct / float(X.shape[0])) * 100.0))
-
-
-# # ----------------------------------------------------------------------------
-# # Plotting
-# # ----------------------------------------------------------------------------
-# import matplotlib.pyplot as plt
-#
-# # Create a plot with axes for each
-# fig, axes = plt.subplots(len(neuron_layers), sharex=True)
-#
-#
-# # Loop through axes and their corresponding neuron populations
-# for a, s, l in zip(axes, layer_spikes, neuron_layers):
-#     # Plot spikes
-#     a.scatter(s[1], s[0], s=1)
-#
-#     # Set title, axis labels
-#     a.set_title(l.name)
-#     a.set_ylabel("Spike number")
-#     a.set_xlim((0, PRESENT_TIMESTEPS * TIMESTEP))
-#     a.set_ylim((0, l.size))
-#
-#
-# # Add an x-axis label and translucent line showing the correct label
-# axes[-1].set_xlabel("Time [ms]")
-# axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
-#                 linestyle="--", color="gray", alpha=0.2)
-#
-# # Show plot
-# plt.show()
+print("Dumped data.")

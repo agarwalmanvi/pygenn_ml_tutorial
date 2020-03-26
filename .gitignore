@@ -5,3 +5,5 @@ mnist/*
 *.csv
 *.png
 *.ipynb
+w_0_1.npy
+w_1_2.npy
