@@ -104,42 +104,40 @@ while model.timestep < (PRESENT_TIMESTEPS * testing_images.shape[0]):
     timestep_in_example = model.timestep % PRESENT_TIMESTEPS
     example = int(model.timestep // PRESENT_TIMESTEPS)
 
-    if example < 20:
+    # If this is the first timestep of presenting the example
+    if timestep_in_example == 0:
+        current_input_magnitude[:] = testing_images[example] * INPUT_CURRENT_SCALE
+        model.push_var_to_device("current_input", "magnitude")
 
-        # If this is the first timestep of presenting the example
-        if timestep_in_example == 0:
-            current_input_magnitude[:] = testing_images[example] * INPUT_CURRENT_SCALE
-            model.push_var_to_device("current_input", "magnitude")
+        # Loop through all layers and their corresponding voltage views
+        for l, v in zip(neuron_layers, layer_voltages):
+            # Manually 'reset' voltage
+            v[:] = 0.0
 
-            # Loop through all layers and their corresponding voltage views
-            for l, v in zip(neuron_layers, layer_voltages):
-                # Manually 'reset' voltage
-                v[:] = 0.0
+            # Upload
+            model.push_var_to_device(l.name, "V")
 
-                # Upload
-                model.push_var_to_device(l.name, "V")
+        # Zero spike count
+        output_spike_count[:] = 0
+        model.push_var_to_device(neuron_layers[-1].name, "SpikeCount")
 
-            # Zero spike count
-            output_spike_count[:] = 0
-            model.push_var_to_device(neuron_layers[-1].name, "SpikeCount")
+    # Advance simulation
+    model.step_time()
 
-        # Advance simulation
-        model.step_time()
+    # If this is the LAST timestep of presenting the example
+    if timestep_in_example == (PRESENT_TIMESTEPS - 1):
+        # Download spike count from last layer
+        model.pull_var_from_device(neuron_layers[-1].name, "SpikeCount")
 
-        # If this is the LAST timestep of presenting the example
-        if timestep_in_example == (PRESENT_TIMESTEPS - 1):
-            # Download spike count from last layer
-            model.pull_var_from_device(neuron_layers[-1].name, "SpikeCount")
+        # Find which neuron spiked the most to get prediction
+        predicted_label = np.argmax(output_spike_count)
+        true_label = testing_labels[example]
 
-            # Find which neuron spiked the most to get prediction
-            predicted_label = np.argmax(output_spike_count)
-            true_label = testing_labels[example]
+        print("\tExample=%u, true label=%u, predicted label=%u" % (example,
+                                                                   true_label,
+                                                                   predicted_label))
 
-            print("\tExample=%u, true label=%u, predicted label=%u" % (example,
-                                                                       true_label,
-                                                                       predicted_label))
-
-            if predicted_label == true_label:
-                num_correct += 1
+        if predicted_label == true_label:
+            num_correct += 1
 
 print("Accuracy %f%%" % ((num_correct / float(testing_images.shape[0])) * 100.0))
