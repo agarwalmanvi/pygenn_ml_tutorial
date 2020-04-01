@@ -30,6 +30,7 @@ PRESENT_TIMESTEPS = 100
 # OUTPUT_CURRENT_SCALE = 10000.0
 INPUT_CURRENT_SCALE = 1.0 / 100.0
 OUTPUT_CURRENT_SCALE = 10.0
+NUM_CLASSES = 2
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -86,9 +87,9 @@ model.dT = TIMESTEP
 
 # Initial values for initialisation
 if_init = {"V": 0.0, "SpikeCount":0}
-stdp_init = {"g": init_var("Uniform", {"min": 0.0, "max": STDP_PARAMS["gmax"]})}
+stdp_init = {"g": init_var("Uniform", {"min": STDP_PARAMS["gmin"], "max": STDP_PARAMS["gmax"]})}
 
-neurons_count = [784, 128, 10]
+neurons_count = [784, 128, NUM_CLASSES]
 neuron_layers = []
 
 # Create neuron layers
@@ -101,12 +102,26 @@ weights_0_1 = np.load("weights_0_1.npy")
 
 synapses = []
 # Create synaptic connections between layers
+# for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
+#     if i == 0:
+#         synapses.append(model.add_synapse_population(
+#             "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
+#             pre, post,
+#             "StaticPulse", {}, {"g": weights_0_1.flatten()}, {}, {},
+#             "DeltaCurr", {}, {}))
+#     else:
+#         synapses.append(model.add_synapse_population(
+#             "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
+#             pre, post,
+#             stdp_model, STDP_PARAMS, stdp_init, {}, {},
+#             "DeltaCurr", {}, {}))
+
 for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
     if i == 0:
         synapses.append(model.add_synapse_population(
             "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
             pre, post,
-            "StaticPulse", {}, {"g": weights_0_1.flatten()}, {}, {},
+            "StaticPulse", {}, stdp_init, {}, {},
             "DeltaCurr", {}, {}))
     else:
         synapses.append(model.add_synapse_population(
@@ -114,6 +129,8 @@ for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
             pre, post,
             stdp_model, STDP_PARAMS, stdp_init, {}, {},
             "DeltaCurr", {}, {}))
+
+
 
 # Create current source to deliver input to first layers of neurons
 current_input = model.add_current_source("current_input", cs_model,
@@ -135,9 +152,14 @@ X, y = loadlocal_mnist(
         images_path=path.join(data_dir, 'train-images-idx3-ubyte'),
         labels_path=path.join(data_dir, 'train-labels-idx1-ubyte'))
 
-# reduce the dataset so that we can plot it periodically and see what's happening in the network
-# X = X[:10, :]
-# y = y[:10]
+# binary classification
+# idx = [i for i in range(len(y)) if y[i] == 0 or y[i] == 1]
+# X = X[idx]
+# y = y[idx]
+
+# one vs all type classification
+# idx = [i for i in range(len(y)) if y[i] != 0]
+# y[idx] = 1
 
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
@@ -149,6 +171,12 @@ print("Loading training labels of size: " + str(y.shape))
 current_input_magnitude = current_input.vars["magnitude"].view
 current_output_magnitude = current_output.vars["magnitude"].view
 layer_voltages = [l.vars["V"].view for l in neuron_layers]
+
+exp = "3b"
+prefix = "exp3b"
+save_png_dir = "/home/manvi/Documents/pygenn_ml_tutorial/imgs/" + exp
+
+print("Experiment: " + prefix)
 
 # Simulate
 while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
@@ -168,7 +196,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
             print("Example: " + str(example))
 
         current_input_magnitude[:] = X[example, :].flatten() * INPUT_CURRENT_SCALE
-        one_hot = np.zeros((10))
+        one_hot = np.zeros((NUM_CLASSES))
         one_hot[y[example]] = 1
         current_output_magnitude[:] = one_hot.flatten() * OUTPUT_CURRENT_SCALE
         model.push_var_to_device("current_input", "magnitude")
@@ -278,7 +306,8 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
             #                 linestyle="--", color="gray", alpha=0.2)
 
             # Show plot
-            plt.savefig('example' + str(example) + '.png')
+            save_filename = path.join(save_png_dir, prefix + '_example' + str(example) + '.png')
+            plt.savefig(save_filename)
 
             # print("Creating V figure")
             #
@@ -346,6 +375,6 @@ for i, l in enumerate(synapses):
     weight_values = l.get_var_values("g")
     print(type(weight_values))
     print(weight_values.shape)
-    np.save("w_"+str(i)+"_"+str(i+1)+".npy", weight_values)
+    np.save(prefix + "w1_"+str(i)+"_"+str(i+1)+".npy", weight_values)
 
 print("Dumped data.")

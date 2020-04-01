@@ -13,6 +13,7 @@ IF_PARAMS = {"Vthr": 5.0}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 INPUT_CURRENT_SCALE = 1.0 / 100.0
+NUM_CLASSES = 2
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -44,11 +45,15 @@ model.dT = TIMESTEP
 
 print("loading weights.")
 
+load_weights_path = "/home/manvi/Documents/pygenn_ml_tutorial/weights/3b"
+
 # Load weights
 weights = []
 while True:
-    filename = "w_%u_%u.npy" % (len(weights), len(weights) + 1)
+    filename = "exp3bw1_%u_%u.npy" % (len(weights), len(weights) + 1)
+    filename = path.join(load_weights_path, filename)
     if path.exists(filename):
+        print("Loading weights from: " + str(filename))
         weights.append(np.load(filename))
     else:
         break
@@ -56,7 +61,7 @@ while True:
 # Initial values to initialise all neurons to
 if_init = {"V": 0.0, "SpikeCount":0}
 
-neurons_count = [784, 128, 10]
+neurons_count = [784, 128, NUM_CLASSES]
 
 neuron_layers = []
 
@@ -87,6 +92,18 @@ model.load()
 # Load testing data
 testing_images = np.load("testing_images.npy")
 testing_labels = np.load("testing_labels.npy")
+
+# binary classification
+# idx = [i for i in range(len(testing_labels)) if testing_labels[i] == 0 or testing_labels[i] == 1]
+# testing_images = testing_images[idx]
+# testing_labels = testing_labels[idx]
+
+# one vs all type classification
+# idx = [i for i in range(len(testing_labels)) if testing_labels[i] != 0]
+# testing_labels[idx] = 1
+
+print("Loaded testing imgs of size: " + str(testing_images.shape))
+print("Loaded testing labels of size: " + str(testing_labels.shape))
 
 # # Check dimensions match network
 # assert testing_images.shape[1] == weights[0].shape[0]
