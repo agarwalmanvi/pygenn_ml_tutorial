@@ -13,7 +13,7 @@ IF_PARAMS = {"Vthr": 5.0}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 INPUT_CURRENT_SCALE = 1.0 / 100.0
-NUM_CLASSES = 2
+NUM_CLASSES = 10
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -45,12 +45,12 @@ model.dT = TIMESTEP
 
 print("loading weights.")
 
-load_weights_path = "/home/manvi/Documents/pygenn_ml_tutorial/weights/3b"
+load_weights_path = "/home/manvi/Documents/pygenn_ml_tutorial"
 
 # Load weights
 weights = []
 while True:
-    filename = "exp3bw1_%u_%u.npy" % (len(weights), len(weights) + 1)
+    filename = "vogelsw1_%u_%u.npy" % (len(weights), len(weights) + 1)
     filename = path.join(load_weights_path, filename)
     if path.exists(filename):
         print("Loading weights from: " + str(filename))

@@ -3,8 +3,7 @@ mnist/*
 !mnist/readme.md
 *.csv
 *.png
-w_0_1.npy
-w_1_2.npy
+*.npy
 imgs
 weights
 .ipynb_checkpoints

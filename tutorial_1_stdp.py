@@ -18,19 +18,24 @@ IF_PARAMS = {"Vthr": 5.0}
 #                "taupost": 2.0,
 #                "incpre": 0.1,
 #                "incpost": -0.105}
+# STDP_PARAMS = {"gmax": 1.0,
+#                "taupre": 4.0,
+#                "taupost": 4.0,
+#                "gmin": -1.0,
+#                "aplus": 0.1,
+#                "aminus": 0.105}
 STDP_PARAMS = {"gmax": 1.0,
-               "taupre": 4.0,
-               "taupost": 4.0,
-               "gmin": -1.0,
-               "aplus": 0.1,
-               "aminus": 0.105}
+               "tau": 4.0,
+               "gmin": 0.0,
+               "rho": 0.1,
+               "eta": 2.0}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 # INPUT_CURRENT_SCALE = 1.0 / 200.0
 # OUTPUT_CURRENT_SCALE = 10000.0
 INPUT_CURRENT_SCALE = 1.0 / 100.0
 OUTPUT_CURRENT_SCALE = 10.0
-NUM_CLASSES = 2
+NUM_CLASSES = 10
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -47,26 +52,49 @@ if_model = create_custom_neuron_class(
     """,
     threshold_condition_code="$(V) >= $(Vthr)")
 
+# stdp_model = create_custom_weight_update_class(
+#     "stdp_model",
+#     param_names=["gmax", "taupre", "taupost", "gmin", "aplus", "aminus"],
+#     var_name_types=[("g", "scalar")],
+#     sim_code=
+#         """
+#         $(addToInSyn, $(g));
+#         scalar deltat = $(t) - $(sT_post);
+#         if (deltat > 0) {
+#             scalar newg = $(g) - ($(aminus) * exp( - deltat / $(taupost)));
+#             $(g) = fmin($(gmax), fmax($(gmin), newg));
+#         }
+#         """,
+#     learn_post_code=
+#         """
+#         const scalar deltat = $(t) - $(sT_pre);
+#         if (deltat > 0) {
+#             scalar newg = $(g) + ($(aplus) * exp( - deltat / $(taupre)));
+#             $(g) = fmin($(gmax), fmax($(gmin), newg));
+#         }
+#         """,
+#     is_pre_spike_time_required=True,
+#     is_post_spike_time_required=True
+# )
+
 stdp_model = create_custom_weight_update_class(
     "stdp_model",
-    param_names=["gmax", "taupre", "taupost", "gmin", "aplus", "aminus"],
+    param_names=["tau", "rho", "eta", "gmin", "gmax"],
     var_name_types=[("g", "scalar")],
     sim_code=
         """
         $(addToInSyn, $(g));
         scalar deltat = $(t) - $(sT_post);
-        if (deltat > 0) {
-            scalar newg = $(g) - ($(aminus) * exp( - deltat / $(taupost)));
-            $(g) = fmin($(gmax), fmax($(gmin), newg));
-        }
+        scalar timing = exp(-deltat / $(tau)) - $(rho);
+        scalar newg = $(g) - ($(eta) * timing);
+        $(g) = fmin($(gmax), fmax($(gmin), newg));
         """,
     learn_post_code=
         """
         const scalar deltat = $(t) - $(sT_pre);
-        if (deltat > 0) {
-            scalar newg = $(g) + ($(aplus) * exp( - deltat / $(taupre)));
-            $(g) = fmin($(gmax), fmax($(gmin), newg));
-        }
+        scalar timing = exp(-deltat / $(tau));
+        scalar newg = $(g) - ($(eta) * timing);
+        $(g) = (newg < $(gmin)) ? $(gmin) : newg;
         """,
     is_pre_spike_time_required=True,
     is_post_spike_time_required=True
@@ -172,8 +200,8 @@ current_input_magnitude = current_input.vars["magnitude"].view
 current_output_magnitude = current_output.vars["magnitude"].view
 layer_voltages = [l.vars["V"].view for l in neuron_layers]
 
-exp = "3b"
-prefix = "exp3b"
+exp = "vogels"
+prefix = "vogels"
 save_png_dir = "/home/manvi/Documents/pygenn_ml_tutorial/imgs/" + exp
 
 print("Experiment: " + prefix)
