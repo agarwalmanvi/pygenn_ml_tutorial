@@ -27,7 +27,7 @@ IF_PARAMS = {"Vthr": 5.0}
 STDP_PARAMS = {"gmax": 1.0,
                "tau": 20.0,
                "gmin": -1.0,
-               "rho": 0.1,
+               "rho": 0.5,
                "eta": 0.01}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
@@ -210,6 +210,13 @@ save_png_dir = "/home/manvi/Documents/pygenn_ml_tutorial/imgs/" + exp
 
 print("Experiment: " + prefix)
 
+model.pull_var_from_device(synapses[1].name, "g")
+weight_values = synapses[1].get_var_values("g")
+print("max: ")
+print(np.amax(weight_values))
+print("min: ")
+print(np.amin(weight_values))
+
 # Simulate
 while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # Calculate the timestep within the presentation
@@ -224,7 +231,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         # synapse_weights = [np.array([]) for _ in enumerate(synapses)]
         # layer_currents = [np.array([]) for _ in enumerate(neuron_layers)]
 
-        if example % 100 == 0:
+        if example % 1000 == 0:
             print("Example: " + str(example))
 
         current_input_magnitude[:] = X[example, :].flatten() * INPUT_CURRENT_SCALE
@@ -297,6 +304,13 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
         # Make a plot every 10000th example
         if example % 10000 == 0:
+
+            model.pull_var_from_device(synapses[1].name, "g")
+            weight_values = synapses[1].get_var_values("g")
+            print("max: ")
+            print(np.amax(weight_values))
+            print("min: ")
+            print(np.amin(weight_values))
 
             # for s, w in zip(synapses, synapse_weights):
             #     print("\n")
@@ -399,6 +413,13 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
 
 print("Completed training.")
+
+model.pull_var_from_device(synapses[1].name, "g")
+weight_values = synapses[1].get_var_values("g")
+print("max: ")
+print(np.amax(weight_values))
+print("min: ")
+print(np.amin(weight_values))
 
 for i, l in enumerate(synapses):
 
