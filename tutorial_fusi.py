@@ -3,7 +3,7 @@ from os import path
 
 from pygenn.genn_model import (create_custom_neuron_class,
                                create_custom_current_source_class, create_custom_weight_update_class,
-                               GeNNModel)
+                               GeNNModel, init_var)
 from pygenn.genn_wrapper import NO_DELAY
 
 # ----------------------------------------------------------------------------
@@ -13,23 +13,24 @@ IF_PARAMS = {"Vtheta": 1.0,
              "lambda": 0.1,
              "Vrest": 0.0,
              "Vreset": 0.0}
-FUSI_PARAMS = {"tauC": 60,
+FUSI_PARAMS = {"tauC": 60.0,
                "a": 0.1,
                "b":0.1,
-               "thetaLUp": 3,
-               "thetaLDown": 3,
-               "thetaHUp": 13,
-               "thetaHDown": 4,
+               "thetaLUp": 3.0,
+               "thetaLDown": 3.0,
+               "thetaHUp": 13.0,
+               "thetaHDown": 4.0,
                "thetaX": 0.5,
                "alpha": 3.5,
                "beta": 3.5,
-               "Xmax": 1,
-               "Xmin":0,
+               "Xmax": 1.0,
+               "Xmin":0.0,
                "ThetaV": 0.8
 }
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 INPUT_CURRENT_SCALE = 1.0 / 100.0
+OUTPUT_CURRENT_SCALE = 10.0
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -81,9 +82,6 @@ fusi_model = create_custom_weight_update_class(
     }
     $(X) = fmin($(Xmax), fmax($(Xmin), $(X)));
     """,
-    pre_spike_code="""
-    
-    """,
     is_post_spike_time_required=True
 )
 
@@ -111,6 +109,8 @@ while True:
 
 # Initial values to initialise all neurons to
 if_init = {"V": 0.0, "SpikeCount":0}
+fusi_init = {"C": 0.0,
+             "X": init_var("Uniform", {"min": FUSI_PARAMS["Xmin"], "max": FUSI_PARAMS["Xmax"]})}
 
 # Create first neuron layer
 neuron_layers = [model.add_neuron_population("neuron0", weights[0].shape[0],
