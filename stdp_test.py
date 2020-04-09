@@ -147,6 +147,9 @@ while model.timestep < (PRESENT_TIMESTEPS * testing_images.shape[0]):
         model.pull_var_from_device(neuron_layers[-1].name, "SpikeCount")
 
         # Find which neuron spiked the most to get prediction
+        if example % 100 == 0:
+            print("Output spike count: ")
+            print(output_spike_count)
         predicted_label = np.argmax(output_spike_count)
         true_label = testing_labels[example]
 

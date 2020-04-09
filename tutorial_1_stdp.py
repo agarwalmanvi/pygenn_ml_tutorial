@@ -25,10 +25,10 @@ IF_PARAMS = {"Vthr": 5.0}
 #                "aplus": 0.1,
 #                "aminus": 0.105}
 STDP_PARAMS = {"gmax": 1.0,
-               "tau": 4.0,
-               "gmin": 0.0,
+               "tau": 20.0,
+               "gmin": -1.0,
                "rho": 0.1,
-               "eta": 2.0}
+               "eta": 0.01}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 # INPUT_CURRENT_SCALE = 1.0 / 200.0
@@ -85,16 +85,20 @@ stdp_model = create_custom_weight_update_class(
         """
         $(addToInSyn, $(g));
         scalar deltat = $(t) - $(sT_post);
-        scalar timing = exp(-deltat / $(tau)) - $(rho);
-        scalar newg = $(g) - ($(eta) * timing);
-        $(g) = fmin($(gmax), fmax($(gmin), newg));
+        if (deltat > 0) {
+            scalar timing = exp(-deltat / $(tau)) - $(rho);
+            scalar newg = $(g) + ($(eta) * timing);
+            $(g) = fmin($(gmax), fmax($(gmin), newg));
+        }
         """,
     learn_post_code=
         """
         const scalar deltat = $(t) - $(sT_pre);
-        scalar timing = exp(-deltat / $(tau));
-        scalar newg = $(g) - ($(eta) * timing);
-        $(g) = (newg < $(gmin)) ? $(gmin) : newg;
+        if (deltat > 0) {
+            scalar timing = exp(-deltat / $(tau));
+            scalar newg = $(g) + ($(eta) * timing);
+            $(g) = fmin($(gmax), fmax($(gmin), newg));
+        }
         """,
     is_pre_spike_time_required=True,
     is_post_spike_time_required=True
