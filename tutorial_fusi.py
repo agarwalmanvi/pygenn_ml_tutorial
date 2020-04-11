@@ -15,27 +15,9 @@ IF_PARAMS = {"Vtheta": 1.0,
              "lambda": 0.1,
              "Vrest": 0.0,
              "Vreset": 0.0}
-# FUSI_PARAMS = {"tauC": 60.0,
-#                "a": 0.1,
-#                "b":0.1,
-#                "thetaLUp": 3.0,
-#                "thetaLDown": 3.0,
-#                "thetaHUp": 13.0,
-#                "thetaHDown": 4.0,
-#                "thetaX": 0.5,
-#                "alpha": 3.5,
-#                "beta": 3.5,
-#                "Xmax": 1.0,
-#                "Xmin":0.0,
-#                "ThetaV": 0.8,
-#                "JC": 1.0
-# }
-FUSI_PARAMS = {"tauC": 60.0,
-               "JC": 1.0,
-               "thetaLUp": 3.0,
-               "thetaHUp": 13.0,
-               "a": 0.1
-               }
+FUSI_PARAMS = {"tauC": 60.0, "a": 0.1, "b": 0.1, "thetaV": 0.8, "thetaLUp": 3.0,
+               "thetaLDown": 3.0, "thetaHUp": 13.0, "thetaHDown": 4.0, "thetaX": 0.5,
+               "alpha": 3.5, "beta": 3.5, "Xmax": 1.0, "Xmin": 0.0, "JC": 1.0}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 INPUT_CURRENT_SCALE = 1.0 / 100.0
@@ -61,72 +43,34 @@ if_model = create_custom_neuron_class(
     threshold_condition_code="$(V) >= $(Vtheta)"
 )
 
-# fusi_model = create_custom_weight_update_class(
-#     "fusi_model",
-#     param_names = ["tauC", "a", "b", "thetaV", "thetaLUp", "thetaLDown", "thetaHUp", "thetaHDown",
-#                    "thetaX", "alpha", "beta", "Xmax", "Xmin"],
-#     var_name_types = [("C", "scalar"), ("X", "scalar")],
-#     sim_code = """
-#     $(addToInSyn, $(X));
-#     scalar dt = $(t) - $(sT_post);
-#     if (dt > 0) {
-#         $(C) += (- $(C) / $(tauC)) + $(JC);
-#     }
-#     else {
-#         $(C) += (- $(C) / $(tauC));
-#     }
-#     if ($(V) > $(ThetaV) and $(thetaLUp) < $(C) and $(C) < $(thetaHUp)) {
-#         $(X) += $(a);
-#     }
-#     else if ($(V) <= $(ThetaV) and $(thetaLDown) < $(C) and $(C) < $(thetaHDown)) {
-#         $(X) -= $(b);
-#     }
-#     else {
-#         if ($(X) > $(thetaX)) {
-#             $(X) += $(alpha) * DT;
-#         }
-#         else {
-#             $(X) += - $(beta) * DT;
-#         }
-#     }
-#     $(X) = fmin($(Xmax), fmax($(Xmin), $(X)));
-#     """,
-#     is_post_spike_time_required=True
-# )
-
 fusi_model = create_custom_weight_update_class(
     "fusi_model",
-    param_names=["tauC", "JC", "thetaLUp", "thetaHUp", "a", "thetaLDown", ],
-    var_name_types=[("C", "scalar"), ("g", "scalar")],
+    param_names=["tauC", "a", "b", "thetaV", "thetaLUp", "thetaLDown", "thetaHUp", "thetaHDown",
+                 "thetaX", "alpha", "beta", "Xmax", "Xmin", "JC"],
+    var_name_types=[("X", "scalar"), ("tpre", "scalar")],
+    post_var_name_types=[("C", "scalar")],
     sim_code="""
-    $(addToInSyn, $(g));
-    scalar dt = $(t) - $(sT_post);
-    if (dt > 0) {
-        $(C) += (- $(C) / $(tauC)) + $(JC);
+    $(addToInSyn, $(X));
+    if ($(V_post) > $(thetaV) and $(thetaLUp) < $(C) and $(C) < $(thetaHUp)) {
+        $(X) += $(a);
     }
-    else {
-        $(C) += (- $(C) / $(tauC));
-    }
-    if $(thetaLUp) < $(C) and $(C) < $(thetaHUp)) {
-        $(g) += $(a);
-    }
-    ## Check from here ##
-    else if $(thetaLDown) < $(C) and $(C) < $(thetaHDown)) {
+    else if ($(V_post) <= $(thetaV) and $(thetaLDown) < $(C) and $(C) < $(thetaHDown)) {
         $(X) -= $(b);
     }
     else {
         if ($(X) > $(thetaX)) {
-            $(X) += $(alpha) * DT;
+            $(X) += $(alpha) * $(tpre);
         }
         else {
-            $(X) += - $(beta) * DT;
+            $(X) -= $(beta) * $(tpre);
         }
     }
     $(X) = fmin($(Xmax), fmax($(Xmin), $(X)));
-    $(g) = $(C) * 0.5;
+    $(tpre) = $(t);
     """,
     post_spike_code="""
-    
+    const scalar dt = $(t) - $(sT_post);
+    $(C) = $(C) * exp(-dt / $(tauC)) + $(JC);
     """,
     is_pre_spike_time_required=True,
     is_post_spike_time_required=True
@@ -149,7 +93,8 @@ model.dT = TIMESTEP
 if_init = {"V": 0.0, "SpikeCount": 0}
 # fusi_init = {"C": 0.0,
 #              "X": 0.0}
-fusi_init = {"C": 0.0, "g": 0.0}
+fusi_init = {"X": 0.0, "tpre": 0.0}
+fusi_post_init = {"C": 0.0}
 
 neurons_count = [784, 128, NUM_CLASSES]
 neuron_layers = []
@@ -175,7 +120,7 @@ for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
         synapses.append(model.add_synapse_population(
             "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
             pre, post,
-            fusi_model, FUSI_PARAMS, fusi_init, {}, {},
+            fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
             "DeltaCurr", {}, {}))
 
 # Create current source to deliver input to first layers of neurons
