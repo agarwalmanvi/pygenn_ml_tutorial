@@ -12,12 +12,12 @@ import matplotlib.pyplot as plt
 # Parameters
 # ----------------------------------------------------------------------------
 IF_PARAMS = {"Vtheta": 1.0,
-             "lambda": 0.1,
+             "lambda": 0.01,
              "Vrest": 0.0,
              "Vreset": 0.0}
 FUSI_PARAMS = {"tauC": 60.0, "a": 0.1, "b": 0.1, "thetaV": 0.8, "thetaLUp": 3.0,
                "thetaLDown": 3.0, "thetaHUp": 13.0, "thetaHDown": 4.0, "thetaX": 0.5,
-               "alpha": 3.5, "beta": 3.5, "Xmax": 1.0, "Xmin": 0.0, "JC": 1.0}
+               "alpha": 0.0035, "beta": 0.0035, "Xmax": 1.0, "Xmin": 0.0, "JC": 1.0}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 100
 INPUT_CURRENT_SCALE = 1.0 / 100.0
@@ -34,7 +34,6 @@ if_model = create_custom_neuron_class(
     var_name_types=[("V", "scalar"), ("SpikeCount", "unsigned int")],
     sim_code="""
     $(V) += (-$(lambda) + $(Isyn)) * DT;
-    $(V) = fmin($(V), $(Vrest));
     """,
     reset_code="""
     $(V) = $(Vreset);
@@ -91,9 +90,8 @@ model.dT = TIMESTEP
 
 # Initial values for initialisation
 if_init = {"V": 0.0, "SpikeCount": 0}
-# fusi_init = {"C": 0.0,
-#              "X": 0.0}
-fusi_init = {"X": 0.0, "tpre": 0.0}
+fusi_init = {"X": init_var("Uniform", {"min": FUSI_PARAMS["Xmin"], "max": FUSI_PARAMS["Xmax"]}),
+             "tpre": 0.0}
 fusi_post_init = {"C": 0.0}
 
 neurons_count = [784, 128, NUM_CLASSES]
