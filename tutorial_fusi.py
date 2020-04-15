@@ -82,6 +82,17 @@ cs_model = create_custom_current_source_class(
     injection_code="$(injectCurrent, $(magnitude));")
 
 # ----------------------------------------------------------------------------
+# Import training data
+# ----------------------------------------------------------------------------
+data_dir = "/home/manvi/Documents/pygenn_ml_tutorial/mnist"
+X, y = loadlocal_mnist(
+    images_path=path.join(data_dir, 'train-images-idx3-ubyte'),
+    labels_path=path.join(data_dir, 'train-labels-idx1-ubyte'))
+
+print("Loading training images of size: " + str(X.shape))
+print("Loading training labels of size: " + str(y.shape))
+
+# ----------------------------------------------------------------------------
 # Build model
 # ----------------------------------------------------------------------------
 # Create GeNN model
@@ -94,59 +105,53 @@ fusi_init = {"X": init_var("Uniform", {"min": FUSI_PARAMS["Xmin"], "max": FUSI_P
              "tpre": 0.0}
 fusi_post_init = {"C": 0.0}
 
-neurons_count = [784, 128, NUM_CLASSES]
+inp_neuron_num = X.shape[0]
+out_neuron_num = NUM_CLASSES
+
+neuron_layer_names = {"input_layer": inp_neuron_num,
+                      "inh_layer": inp_neuron_num,
+                      "output_layer": out_neuron_num}
+
 neuron_layers = []
 
 # Create neuron layers
-for i in range(len(neurons_count)):
-    neuron_layers.append(model.add_neuron_population("neuron%u" % (i),
-                                                     neurons_count[i], if_model,
+for i in neuron_layer_names:
+    neuron_layers.append(model.add_neuron_population(i, neuron_layer_names[i], if_model,
                                                      IF_PARAMS, if_init))
-
-weights_0_1 = np.load("weights_0_1.npy")
 
 synapses = []
 
+# Create non-plastic synapses
 for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
-    if i == 0:
-        synapses.append(model.add_synapse_population(
-            "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
-            pre, post,
-            "StaticPulse", {}, {"g": weights_0_1.flatten()}, {}, {},
-            "DeltaCurr", {}, {}))
-    else:
-        synapses.append(model.add_synapse_population(
-            "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
-            pre, post,
-            fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
-            "DeltaCurr", {}, {}))
+    synapses.append(model.add_synapse_population(
+        "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
+        pre, post,
+        "StaticPulse", {}, {"g": 1.0}, {}, {},
+        "DeltaCurr", {}, {}))
+
+# Create plastic synapses between input and output layer
+synapses.append(model.add_synapse_population(
+    "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
+    neuron_layers[0], neuron_layers[-1],
+    fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
+    "DeltaCurr", {}, {}))
 
 # Create current source to deliver input to first layers of neurons
 current_input = model.add_current_source("current_input", cs_model,
-                                         "neuron0", {}, {"magnitude": 0.0})
+                                         "input_layer", {}, {"magnitude": 0.0})
 
 # Create current source to deliver target output to last layer of neurons
 current_output = model.add_current_source("current_output", cs_model,
-                                          "neuron2", {}, {"magnitude": 0.0})
+                                          "output_layer", {}, {"magnitude": 0.0})
 
 # Build and load our model
 model.build()
 model.load()
 
 # ----------------------------------------------------------------------------
-# Import training data
-# ----------------------------------------------------------------------------
-data_dir = "/home/manvi/Documents/pygenn_ml_tutorial/mnist"
-X, y = loadlocal_mnist(
-    images_path=path.join(data_dir, 'train-images-idx3-ubyte'),
-    labels_path=path.join(data_dir, 'train-labels-idx1-ubyte'))
-
-print("Loading training images of size: " + str(X.shape))
-print("Loading training labels of size: " + str(y.shape))
-
-# ----------------------------------------------------------------------------
 # Training
 # ----------------------------------------------------------------------------
+
 # Get views to efficiently access state variables
 current_input_magnitude = current_input.vars["magnitude"].view
 current_output_magnitude = current_output.vars["magnitude"].view

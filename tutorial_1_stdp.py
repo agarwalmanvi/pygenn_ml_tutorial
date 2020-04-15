@@ -163,7 +163,6 @@ for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
             "DeltaCurr", {}, {}))
 
 
-
 # Create current source to deliver input to first layers of neurons
 current_input = model.add_current_source("current_input", cs_model,
                                          "neuron0", {}, {"magnitude": 0.0})
