@@ -121,6 +121,7 @@ for i in neuron_layer_names:
 
 synapses = []
 
+# TODO one-to-one connections?
 # Create non-plastic synapses
 for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
     synapses.append(model.add_synapse_population(
