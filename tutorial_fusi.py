@@ -122,13 +122,17 @@ for i in neuron_layer_names:
 synapses = []
 
 # TODO one-to-one connections?
-# Create non-plastic synapses
-for i, (pre, post) in enumerate(zip(neuron_layers[:-1], neuron_layers[1:])):
-    synapses.append(model.add_synapse_population(
-        "synapse%u" % i, "DENSE_INDIVIDUALG", NO_DELAY,
-        pre, post,
-        "StaticPulse", {}, {"g": 1.0}, {}, {},
-        "DeltaCurr", {}, {}))
+# Create non-plastic synapses for input->inhibitory and inhibitory->output connections
+synapses.append(model.add_synapse_population(
+    "inp2inh", "DENSE_INDIVIDUALG", NO_DELAY,
+    neuron_layers[0], neuron_layers[1],
+    "StaticPulse", {}, {"g": 1.0}, {}, {},
+    "DeltaCurr", {}, {}))
+synapses.append(model.add_synapse_population(
+    "inh2out", "DENSE_INDIVIDUALG", NO_DELAY,
+    neuron_layers[1], neuron_layers[2],
+    "StaticPulse", {}, {"g": -1.0}, {}, {},
+    "DeltaCurr", {}, {}))
 
 # Create plastic synapses between input and output layer
 synapses.append(model.add_synapse_population(
