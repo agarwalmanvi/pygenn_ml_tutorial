@@ -35,11 +35,13 @@ if_model = create_custom_neuron_class(
     param_names=["Vtheta", "lambda", "Vrest", "Vreset"],
     var_name_types=[("V", "scalar"), ("SpikeCount", "unsigned int")],
     sim_code="""
+    if ($(V) >= $(Vtheta)) {
+        $(V) = $(Vreset);
+    }
     $(V) += (-$(lambda) + $(Isyn)) * DT;
     $(V) = fmax($(V), $(Vrest));
     """,
     reset_code="""
-    $(V) = $(Vreset);
     $(SpikeCount)++;
     """,
     threshold_condition_code="$(V) >= $(Vtheta)"
@@ -173,27 +175,30 @@ for run in range(repeats):
     for s in presyn_spike_times:
         axes[0].set_xlim((0,PRESENT_TIMESTEPS))
         axes[0].axvline(s)
+    axes[0].title.set_text("Presynaptic spikes")
 
     # plot X
+    axes[1].title.set_text("Synaptic internal variable X(t)")
     axes[1].plot(X)
     axes[1].set_ylim((0,1))
-    axes[1].axhline(0.5, linestyle="--")
+    axes[1].axhline(0.5, linestyle="--", color="black", linewidth=0.5)
     axes[1].set_yticklabels(["0", "$\\theta_X$", "1"])
 
     # plot postsyn V
-    axes[2].title.set_text('Spike rate: ' + str(postsyn_spike_rate))
+    axes[2].title.set_text('Postsynaptic voltage V(t) (Spike rate: ' + str(postsyn_spike_rate) + " Hz)")
     axes[2].plot(postsyn_V)
     axes[2].set_ylim((0,1.2))
-    axes[2].axhline(1, linestyle="--")
-    axes[2].axhline(0.8, linestyle="--")
+    axes[2].axhline(1, linestyle="--", color="black", linewidth=0.5)
+    axes[2].axhline(0.8, linestyle="--", color="black", linewidth=0.5)
     postsyn_spike_times = layer_spikes[1][1]
     for s in postsyn_spike_times:
-        axes[2].axvline(s)
+        axes[2].axvline(s, color="red", linewidth=0.5)
 
     # plot C
     axes[3].plot(C)
+    axes[3].title.set_text("Calcium variable C(t)")
     for i in [3, 4, 13]:
-        axes[3].axhline(i, linestyle="--")
+        axes[3].axhline(i, linestyle="--", color="black", linewidth=0.5)
 
     save_filename = "fig1" + str(run) + ".png"
     plt.savefig(save_filename)
