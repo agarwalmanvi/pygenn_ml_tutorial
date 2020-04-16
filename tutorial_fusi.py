@@ -24,7 +24,7 @@ TIMESTEP = 1.0
 # INPUT_CURRENT_SCALE = 1.0 / 100.0
 # OUTPUT_CURRENT_SCALE = 10.0
 # NUM_CLASSES = 10
-PRESENT_TIMESTEPS = 3
+PRESENT_TIMESTEPS = 300
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -49,10 +49,12 @@ fusi_model = create_custom_weight_update_class(
     "fusi_model",
     param_names=["tauC", "a", "b", "thetaV", "thetaLUp", "thetaLDown", "thetaHUp", "thetaHDown",
                  "thetaX", "alpha", "beta", "Xmax", "Xmin", "JC", "Jplus", "Jminus"],
-    var_name_types=[("X", "scalar"), ("tpre", "scalar"), ("g", "scalar")],
-    post_var_name_types=[("C", "scalar")],
+    var_name_types=[("X", "scalar"), ("last_tpre", "scalar"), ("g", "scalar")],
+    post_var_name_types=[("C", "scalar"), ("last_spike", "scalar")],
     sim_code="""
     $(addToInSyn, $(g));
+    const scalar dt = $(t) - $(last_spike);
+    $(C) = ($(C) * exp(-dt / $(tauC)));
     if ($(V_post) > $(thetaV) and $(thetaLUp) < $(C) and $(C) < $(thetaHUp)) {
         $(X) += $(a);
     }
@@ -60,20 +62,23 @@ fusi_model = create_custom_weight_update_class(
         $(X) -= $(b);
     }
     else {
+        const scalar X_dt = $(t) - $(last_tpre);
         if ($(X) > $(thetaX)) {
-            $(X) += $(alpha) * $(tpre);
+            $(X) += $(alpha) * X_dt;
         }
         else {
-            $(X) -= $(beta) * $(tpre);
+            $(X) -= $(beta) * X_dt;
         }
     }
-    $(g) = ($(X) > $(thetaX)) ? $(Jplus) : $(Jminus);
     $(X) = fmin($(Xmax), fmax($(Xmin), $(X)));
-    $(tpre) = $(t);
+    $(g) = ($(X) > $(thetaX)) ? $(Jplus) : $(Jminus);
+    $(last_tpre) = $(t);
+    $(last_spike) = $(t);
     """,
     post_spike_code="""
-    const scalar dt = $(t) - $(sT_post);
-    $(C) = $(C) * exp(-dt / $(tauC)) + $(JC);
+    const scalar dt = $(t) - $(last_spike);
+    $(C) = ($(C) * exp(-dt / $(tauC))) + $(JC);
+    $(last_spike) = $(t);
     """,
     is_pre_spike_time_required=True,
     is_post_spike_time_required=True
@@ -81,77 +86,124 @@ fusi_model = create_custom_weight_update_class(
 
 ########## Reproduce Fig 1 from paper ################
 
-model = GeNNModel("float", "fig1")
-model.dT = TIMESTEP
+repeats = 5
 
-presyn_params = {"rate" : 50.0}
-extra_poisson_params = {"rate" : 100.0}
-poisson_init = {"timeStepToSpike" : 0.0}
-if_init = {"V": 0.0, "SpikeCount": 0}
-fusi_init = {"X": init_var("Uniform", {"min": FUSI_PARAMS["Xmin"], "max": FUSI_PARAMS["Xmax"]}),
-             "tpre": 0.0,
-             "g": init_var("Uniform", {"min": FUSI_PARAMS["Jminus"], "max": FUSI_PARAMS["Jplus"]})}
-fusi_post_init = {"C": 0.0}
+for run in range(repeats):
 
-presyn = model.add_neuron_population("presyn", 1, "PoissonNew", presyn_params, poisson_init)
-postsyn = model.add_neuron_population("postsyn", 1, if_model, IF_PARAMS, if_init)
-extra_poisson = model.add_neuron_population("extra_poisson", 1, "PoissonNew",
-                                            extra_poisson_params, poisson_init)
+    print("run " + str(run))
 
-pre2post = model.add_synapse_population(
-            "pre2post", "DENSE_INDIVIDUALG", NO_DELAY,
-            presyn, postsyn,
-            fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
-            "DeltaCurr", {}, {})
+    model = GeNNModel("float", "fig1")
+    model.dT = TIMESTEP
 
-extra_poisson2post = model.add_synapse_population(
-            "extra_poisson2post", "DENSE_INDIVIDUALG", NO_DELAY,
-            extra_poisson, postsyn,
-            "StaticPulse", {}, {"g": 1.0}, {}, {},
-            "DeltaCurr", {}, {})
+    presyn_params = {"rate" : 50.0}
+    extra_poisson_params = {"rate" : 100.0}
+    poisson_init = {"timeStepToSpike" : 0.0}
+    if_init = {"V": 0.0, "SpikeCount": 0}
+    fusi_init = {"X": 0.0,
+                 "last_tpre": 0.0,
+                 "g": 0.0}
+    fusi_post_init = {"C": 2.0,
+                 "last_spike": 0.0}
 
-model.build()
-model.load()
+    presyn = model.add_neuron_population("presyn", 1, "PoissonNew", presyn_params, poisson_init)
+    postsyn = model.add_neuron_population("postsyn", 1, if_model, IF_PARAMS, if_init)
+    extra_poisson = model.add_neuron_population("extra_poisson", 1, "PoissonNew",
+                                                extra_poisson_params, poisson_init)
 
-print("Simulating")
+    pre2post = model.add_synapse_population(
+                "pre2post", "DENSE_INDIVIDUALG", NO_DELAY,
+                presyn, postsyn,
+                fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
+                "DeltaCurr", {}, {})
 
-neuron_layers = [presyn, postsyn]
+    extra_poisson2post = model.add_synapse_population(
+                "extra_poisson2post", "DENSE_INDIVIDUALG", NO_DELAY,
+                extra_poisson, postsyn,
+                "StaticPulse", {}, {"g": 0.5}, {}, {},
+                "DeltaCurr", {}, {})
 
-# initialize arrays for storing all things we want to plot
-layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
-X = np.array([fusi_init["X"]])
-postsyn_V = np.array([if_init["V"]])
-C = np.array([fusi_post_init["C"]])
+    model.build()
+    model.load()
 
-while model.timestep < PRESENT_TIMESTEPS:
-    model.step_time()
+    print("Simulating")
 
-    # Record presynaptic and postsynaptic spikes
-    for i, l in enumerate(neuron_layers):
-        # Download spikes
-        model.pull_current_spikes_from_device(l.name)
+    neuron_layers = [presyn, postsyn, extra_poisson]
 
-        # Add to data structure
-        spike_times = np.ones_like(l.current_spikes) * model.t
-        layer_spikes[i] = (np.hstack((layer_spikes[i][0], l.current_spikes)),
-                           np.hstack((layer_spikes[i][1], spike_times)))
+    # initialize arrays for storing all things we want to plot
+    layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
+    X = np.array([0.0]) # TODO how to get initial value of X from init_var
+    postsyn_V = np.array([if_init["V"]])
+    C = np.array([fusi_post_init["C"]])
 
-    # Record value of X
-    model.pull_var_from_device("pre2post", "X")
-    X_val = pre2post.get_var_values("X")
-    X = np.concatenate((X, X_val), axis=0)
+    while model.timestep < PRESENT_TIMESTEPS:
+        model.step_time()
 
-    # Record value of postsyn_V
-    model.pull_var_from_device("postsyn", "V")
-    V_val = postsyn.vars["V"].view
-    postsyn_V = np.concatenate((postsyn_V, V_val), axis=0)
+        # Record presynaptic and postsynaptic spikes
+        for i, l in enumerate(neuron_layers):
+            # Download spikes
+            model.pull_current_spikes_from_device(l.name)
 
-    # Record value of C
-    model.pull_post_var_from_device("pre2post", "C")
-    C_val = pre2post.get_var_values("C")
-    C = np.concatenate((C, C_val), axis=0)
+            # Add to data structure
+            spike_times = np.ones_like(l.current_spikes) * model.t
+            layer_spikes[i] = (np.hstack((layer_spikes[i][0], l.current_spikes)),
+                               np.hstack((layer_spikes[i][1], spike_times)))
 
+        # Record value of X
+        model.pull_var_from_device("pre2post", "X")
+        X_val = pre2post.get_var_values("X")
+        X = np.concatenate((X, X_val), axis=0)
 
+        # Record value of postsyn_V
+        model.pull_var_from_device("postsyn", "V")
+        V_val = postsyn.vars["V"].view
+        postsyn_V = np.concatenate((postsyn_V, V_val), axis=0)
+
+        # Record value of C
+        model.pull_var_from_device("pre2post", "C")
+        C_val = pre2post.post_vars["C"].view
+        C = np.concatenate((C, C_val), axis=0)
+
+    postsyn_spike_rate = len(layer_spikes[1][1]) / 0.3
+
+    fig, axes = plt.subplots(4, sharex=True)
+    fig.tight_layout(pad=2.0)
+
+    # plot presyn spikes
+    presyn_spike_times = layer_spikes[0][1]
+    for s in presyn_spike_times:
+        axes[0].set_xlim((0,PRESENT_TIMESTEPS))
+        axes[0].axvline(s)
+
+    # plot X
+    axes[1].plot(X)
+    axes[1].set_ylim((0,1))
+    axes[1].axhline(0.5, linestyle="--")
+    axes[1].set_yticklabels(["0", "$\\theta_X$", "1"])
+
+    # plot postsyn V
+    axes[2].title.set_text('Spike rate: ' + str(postsyn_spike_rate))
+    axes[2].plot(postsyn_V)
+    axes[2].set_ylim((0,1.2))
+    axes[2].axhline(1, linestyle="--")
+    axes[2].axhline(0.8, linestyle="--")
+    postsyn_spike_times = layer_spikes[1][1]
+    for s in postsyn_spike_times:
+        axes[2].axvline(s)
+
+    # plot C
+    axes[3].plot(C)
+    for i in [3, 4, 13]:
+        axes[3].axhline(i, linestyle="--")
+
+    save_filename = "fig1" + str(run) + ".png"
+    plt.savefig(save_filename)
+
+# print("Internal synaptic variable: ")
+# print(X)
+# print("Postsynaptic depolarization: ")
+# print(postsyn_V)
+# print("Calcium variable: ")
+# print(C)
 
 
 # # Current source model which injects current with a magnitude specified by a state variable
