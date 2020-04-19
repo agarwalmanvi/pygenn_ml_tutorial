@@ -3,7 +3,7 @@ from os import path
 
 from pygenn.genn_model import (create_custom_neuron_class,
                                create_custom_current_source_class, create_custom_weight_update_class,
-                               GeNNModel, init_var)
+                               GeNNModel, init_var, init_connectivity)
 from pygenn.genn_wrapper import NO_DELAY
 from mlxtend.data import loadlocal_mnist
 import matplotlib.pyplot as plt
@@ -51,16 +51,16 @@ fusi_model = create_custom_weight_update_class(
     "fusi_model",
     param_names=["tauC", "a", "b", "thetaV", "thetaLUp", "thetaLDown", "thetaHUp", "thetaHDown",
                  "thetaX", "alpha", "beta", "Xmax", "Xmin", "JC", "Jplus", "Jminus"],
-    var_name_types=[("X", "scalar"), ("last_tpre", "scalar"), ("g", "scalar")],
+    var_name_types=[("X", "scalar"), ("last_tpre", "scalar"), ("decayC", "scalar")],
     post_var_name_types=[("C", "scalar"), ("last_spike", "scalar")],
     sim_code="""
-    $(addToInSyn, $(g));
-    const scalar dt = $(t) - $(last_spike);
-    $(C) = ($(C) * exp(-dt / $(tauC)));
-    if ($(V_post) > $(thetaV) and $(thetaLUp) < $(C) and $(C) < $(thetaHUp)) {
+    $(addToInSyn, ($(X) > $(thetaX)) ? $(Jplus) : $(Jminus));
+    const scalar dt = $(t) - $(sT_post);
+    $(decayC) = $(C) * exp(-dt / $(tauC));
+    if ($(V_post) > $(thetaV) && $(thetaLUp) < $(decayC) && $(decayC) < $(thetaHUp)) {
         $(X) += $(a);
     }
-    else if ($(V_post) <= $(thetaV) and $(thetaLDown) < $(C) and $(C) < $(thetaHDown)) {
+    else if ($(V_post) <= $(thetaV) && $(thetaLDown) < $(decayC) && $(decayC) < $(thetaHDown)) {
         $(X) -= $(b);
     }
     else {
@@ -73,14 +73,11 @@ fusi_model = create_custom_weight_update_class(
         }
     }
     $(X) = fmin($(Xmax), fmax($(Xmin), $(X)));
-    $(g) = ($(X) > $(thetaX)) ? $(Jplus) : $(Jminus);
     $(last_tpre) = $(t);
-    $(last_spike) = $(t);
     """,
     post_spike_code="""
-    const scalar dt = $(t) - $(last_spike);
+    const scalar dt = $(t) - $(sT_post);
     $(C) = ($(C) * exp(-dt / $(tauC))) + $(JC);
-    $(last_spike) = $(t);
     """,
     is_pre_spike_time_required=True,
     is_post_spike_time_required=True
@@ -88,7 +85,11 @@ fusi_model = create_custom_weight_update_class(
 
 ########## Reproduce Fig 1 from paper ################
 
-repeats = 5
+# Notes: done -> optimizations, sparse init with one-to-one connectivity
+#       next -> set sparse connectivity, parallel exp within models,
+#               setup data structure for recording everything.
+
+repeats = 50
 
 for run in range(repeats):
 
@@ -102,27 +103,26 @@ for run in range(repeats):
     poisson_init = {"timeStepToSpike" : 0.0}
     if_init = {"V": 0.0, "SpikeCount": 0}
     fusi_init = {"X": 0.0,
-                 "last_tpre": 0.0,
-                 "g": 0.0}
+                 "last_tpre": 0.0}
     fusi_post_init = {"C": 2.0,
                  "last_spike": 0.0}
 
-    presyn = model.add_neuron_population("presyn", 1, "PoissonNew", presyn_params, poisson_init)
-    postsyn = model.add_neuron_population("postsyn", 1, if_model, IF_PARAMS, if_init)
-    extra_poisson = model.add_neuron_population("extra_poisson", 1, "PoissonNew",
+    presyn = model.add_neuron_population("presyn", 100, "PoissonNew", presyn_params, poisson_init)
+    postsyn = model.add_neuron_population("postsyn", 100, if_model, IF_PARAMS, if_init)
+    extra_poisson = model.add_neuron_population("extra_poisson", 100*10, "PoissonNew",
                                                 extra_poisson_params, poisson_init)
 
     pre2post = model.add_synapse_population(
-                "pre2post", "DENSE_INDIVIDUALG", NO_DELAY,
+                "pre2post", "SPARSE_INDIVIDUALG", NO_DELAY,
                 presyn, postsyn,
                 fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
-                "DeltaCurr", {}, {})
+                "DeltaCurr", {}, init_connectivity("OneToOne",{}))
 
     extra_poisson2post = model.add_synapse_population(
-                "extra_poisson2post", "DENSE_INDIVIDUALG", NO_DELAY,
+                "extra_poisson2post", "SPARSE_INDIVIDUALG", NO_DELAY,
                 extra_poisson, postsyn,
-                "StaticPulse", {}, {"g": 0.5}, {}, {},
-                "DeltaCurr", {}, {})
+                "StaticPulse", {}, {"g": 0.05}, {}, {},
+                "DeltaCurr", {}, init_connectivity("OneToOne",{}))
 
     model.build()
     model.load()
@@ -140,7 +140,7 @@ for run in range(repeats):
     while model.timestep < PRESENT_TIMESTEPS:
         model.step_time()
 
-        # Record presynaptic and postsynaptic spikes
+        # Record spikes
         for i, l in enumerate(neuron_layers):
             # Download spikes
             model.pull_current_spikes_from_device(l.name)
@@ -165,43 +165,45 @@ for run in range(repeats):
         C_val = pre2post.post_vars["C"].view
         C = np.concatenate((C, C_val), axis=0)
 
-    postsyn_spike_rate = len(layer_spikes[1][1]) / 0.3
+    postsyn_spike_rate = len(layer_spikes[1][1]) / (PRESENT_TIMESTEPS / 1000)
 
-    fig, axes = plt.subplots(4, sharex=True)
-    fig.tight_layout(pad=2.0)
-
-    # plot presyn spikes
-    presyn_spike_times = layer_spikes[0][1]
-    for s in presyn_spike_times:
-        axes[0].set_xlim((0,PRESENT_TIMESTEPS))
-        axes[0].axvline(s)
-    axes[0].title.set_text("Presynaptic spikes")
-
-    # plot X
-    axes[1].title.set_text("Synaptic internal variable X(t)")
-    axes[1].plot(X)
-    axes[1].set_ylim((0,1))
-    axes[1].axhline(0.5, linestyle="--", color="black", linewidth=0.5)
-    axes[1].set_yticklabels(["0", "$\\theta_X$", "1"])
-
-    # plot postsyn V
-    axes[2].title.set_text('Postsynaptic voltage V(t) (Spike rate: ' + str(postsyn_spike_rate) + " Hz)")
-    axes[2].plot(postsyn_V)
-    axes[2].set_ylim((0,1.2))
-    axes[2].axhline(1, linestyle="--", color="black", linewidth=0.5)
-    axes[2].axhline(0.8, linestyle="--", color="black", linewidth=0.5)
-    postsyn_spike_times = layer_spikes[1][1]
-    for s in postsyn_spike_times:
-        axes[2].axvline(s, color="red", linewidth=0.5)
-
-    # plot C
-    axes[3].plot(C)
-    axes[3].title.set_text("Calcium variable C(t)")
-    for i in [3, 4, 13]:
-        axes[3].axhline(i, linestyle="--", color="black", linewidth=0.5)
-
-    save_filename = "fig1" + str(run) + ".png"
-    plt.savefig(save_filename)
+    # # Create plot
+    # fig, axes = plt.subplots(4, sharex=True)
+    # fig.tight_layout(pad=2.0)
+    #
+    # # plot presyn spikes
+    # presyn_spike_times = layer_spikes[0][1]
+    # for s in presyn_spike_times:
+    #     axes[0].set_xlim((0,PRESENT_TIMESTEPS))
+    #     axes[0].axvline(s)
+    # axes[0].title.set_text("Presynaptic spikes")
+    #
+    # # plot X
+    # axes[1].title.set_text("Synaptic internal variable X(t)")
+    # axes[1].plot(X)
+    # axes[1].set_ylim((0,1))
+    # axes[1].axhline(0.5, linestyle="--", color="black", linewidth=0.5)
+    # axes[1].set_yticklabels(["0", "$\\theta_X$", "1"])
+    #
+    # # plot postsyn V
+    # axes[2].title.set_text('Postsynaptic voltage V(t) (Spike rate: ' + str(postsyn_spike_rate) + " Hz)")
+    # axes[2].plot(postsyn_V)
+    # axes[2].set_ylim((0,1.2))
+    # axes[2].axhline(1, linestyle="--", color="black", linewidth=0.5)
+    # axes[2].axhline(0.8, linestyle="--", color="black", linewidth=0.5)
+    # postsyn_spike_times = layer_spikes[1][1]
+    # for s in postsyn_spike_times:
+    #     axes[2].axvline(s, color="red", linewidth=0.5)
+    #
+    # # plot C
+    # axes[3].plot(C)
+    # axes[3].title.set_text("Calcium variable C(t)")
+    # for i in [3, 4, 13]:
+    #     axes[3].axhline(i, linestyle="--", color="black", linewidth=0.5)
+    #
+    # save_filename = "fig1" + str(run) + ".png"
+    # plt.savefig(save_filename)
+    # plt.close()
 
 # print("Internal synaptic variable: ")
 # print(X)
