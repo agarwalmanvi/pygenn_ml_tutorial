@@ -29,7 +29,6 @@ PRESENT_TIMESTEPS = 300
 # ----------------------------------------------------------------------------
 # Custom GeNN models
 # ----------------------------------------------------------------------------
-# Very simple integrate-and-fire neuron model
 if_model = create_custom_neuron_class(
     "if_model",
     param_names=["Vtheta", "lambda", "Vrest", "Vreset"],
@@ -52,7 +51,7 @@ fusi_model = create_custom_weight_update_class(
     param_names=["tauC", "a", "b", "thetaV", "thetaLUp", "thetaLDown", "thetaHUp", "thetaHDown",
                  "thetaX", "alpha", "beta", "Xmax", "Xmin", "JC", "Jplus", "Jminus"],
     var_name_types=[("X", "scalar"), ("last_tpre", "scalar"), ("decayC", "scalar")],
-    post_var_name_types=[("C", "scalar"), ("last_spike", "scalar")],
+    post_var_name_types=[("C", "scalar")],
     sim_code="""
     $(addToInSyn, ($(X) > $(thetaX)) ? $(Jplus) : $(Jminus));
     const scalar dt = $(t) - $(sT_post);
