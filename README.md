@@ -1,6 +1,6 @@
 # My Installation Instructions for PyGeNN
 
-Get the repo for GeNN by cloning somewhere. Run `export PATH=export PATH=$PATH:$/Documents/genn-4.1.0/bin`. 
+Get the repo for GeNN by cloning somewhere. Run `export PATH=$PATH:$/Documents/genn-4.1.0/bin`. 
 Then check if gcc and g++ is installed with `gcc --version` and `g++ --version`. 
 Then navigate to `cd genn-4.1.0/` and run 
 ```python
