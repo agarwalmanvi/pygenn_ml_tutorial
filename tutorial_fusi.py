@@ -21,7 +21,7 @@ FUSI_PARAMS = {"tauC": 60.0, "a": 0.1, "b": 0.1, "thetaV": 0.8, "thetaLUp": 3.0,
                "alpha": 0.0035, "beta": 0.0035, "Xmax": 1.0, "Xmin": 0.0, "JC": 1.0,
                "Jplus": 1.0, "Jminus": 0.0}
 TIMESTEP = 1.0
-PRESENT_TIMESTEPS = 100
+PRESENT_TIMESTEPS = 300
 INPUT_CURRENT_SCALE = 1.0 / 100.0
 OUTPUT_CURRENT_SCALE = 10.0
 NUM_CLASSES = 10
@@ -43,6 +43,16 @@ if_model = create_custom_neuron_class(
     reset_code="""
     """,
     threshold_condition_code="$(V) >= $(Vtheta)"
+)
+
+poisson_model = create_custom_neuron_class(
+    "poisson_model",
+    var_name_types=[("rate", "scalar")],
+    sim_code="""
+    """,
+    reset_code="""
+    """,
+    threshold_condition_code="$(gennrand_uniform) >= exp(-$(rate) * 0.001 * DT)"
 )
 
 fusi_model = create_custom_weight_update_class(
@@ -97,8 +107,8 @@ X, y = loadlocal_mnist(
 
 X = np.divide(X, 255)
 
-X = X[:100, :]
-y = y[:100]
+X = X[:1, :]
+y = y[:1]
 
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
@@ -112,6 +122,7 @@ model.dT = TIMESTEP
 
 # Initial values for initialisation
 if_init = {"V": 0.0}
+poisson_init = {"rate": 1.0}
 fusi_init = {"X": 0.0,
              "last_tpre": 0.0}
 fusi_post_init = {"C": 2.0}
@@ -125,17 +136,13 @@ neurons_count = {"inp": NUM_INPUT,
 
 neuron_layers = {}
 
-poisson_params = {"rate": 1.0}
-poisson_init = {"timeStepToSpike": 0.0}
-
 for k in neurons_count.keys():
     if k == "out":
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
                                                        if_model, IF_PARAMS, if_init)
     else:
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
-                                                       "PoissonNew",
-                                                       poisson_params, poisson_init)
+                                                       poisson_model, {}, poisson_init)
 
 inp2out = model.add_synapse_population(
     "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
@@ -150,10 +157,10 @@ inh2out = model.add_synapse_population(
     "DeltaCurr", {}, {})
 
 teacher2out = model.add_synapse_population(
-    "teacher2out", "DENSE_INDIVIDUALG", NO_DELAY,
+    "teacher2out", "SPARSE_INDIVIDUALG", NO_DELAY,
     neuron_layers['teacher'], neuron_layers['out'],
     "StaticPulse", {}, {"g": 0.5}, {}, {},
-    "DeltaCurr", {}, {})
+    "DeltaCurr", {}, {}, init_connectivity("OneToOne", {}))
 
 # Build and load our model
 model.build()
@@ -164,8 +171,9 @@ model.load()
 # ----------------------------------------------------------------------------
 # Get views to efficiently access state variables
 out_voltage = neuron_layers['out'].vars['V'].view
-input_rate = neuron_layers['inp'].params['rate'].view
-# layer_voltages = [l.vars["V"].view for l in list(neuron_layers.values())]
+input_rate = neuron_layers['inp'].vars['rate'].view
+inh_rate = neuron_layers['inh'].vars['rate'].view
+teacher_rate = neuron_layers['teacher'].vars['rate'].view
 
 while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # Calculate the timestep within the presentation
@@ -181,63 +189,67 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         if example % 10 == 0:
             print("Example: " + str(example))
 
+        # calculate the correct spiking rates for all populations
         digit = X[example, :].flatten()
         active_pixels = np.count_nonzero(digit)
-        poisson_rates = 50 * active_pixels / NUM_INPUT
-        input_rate = (digit * 48) + 2
-        model.push_param_to_device("inp", "rate")
-#
-#
-#
-#         # Loop through all layers and their corresponding voltage views
-#         for l, v in zip(list(neuron_layers.values()), layer_voltages):
-#             # Manually 'reset' voltage
-#             v[:] = 0.0
-#
-#             # Upload
-#             model.push_var_to_device(l.name, "V")
-#
-#     # Advance simulation
-#     model.step_time()
-#
-#     for i, l in enumerate(list(neuron_layers.values())):
-#         # Download spikes
-#         model.pull_current_spikes_from_device(l.name)
-#
-#         # Add to data structure
-#         spike_times = np.ones_like(l.current_spikes) * model.t
-#         layer_spikes[i] = (np.hstack((layer_spikes[i][0], l.current_spikes)),
-#                            np.hstack((layer_spikes[i][1], spike_times)))
-#
-#     # If this is the LAST timestep of presenting the example
-#     if timestep_in_example == (PRESENT_TIMESTEPS - 1):
-#
-#         # Make a plot every 10th example
-#         if example % 10 == 0:
-#
-#             print("Creating raster plot")
-#
-#             # Create a plot with axes for each
-#             fig, axes = plt.subplots(len(neuron_layers), sharex=True)
-#
-#             # Loop through axes and their corresponding neuron populations
-#             for a, s, l in zip(axes, layer_spikes, list(neuron_layers.values())):
-#                 # Plot spikes
-#                 a.scatter(s[1], s[0], s=1)
-#
-#                 # Set title, axis labels
-#                 a.set_title(l.name)
-#                 a.set_ylabel("Spike number")
-#                 a.set_xlim((example * PRESENT_TIMESTEPS, (example + 1) * PRESENT_TIMESTEPS))
-#                 a.set_ylim((-1, l.size + 1))
-#
-#             # Add an x-axis label
-#             axes[-1].set_xlabel("Time [ms]")
-#             # axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
-#             #                 linestyle="--", color="gray", alpha=0.2)
-#
-#             # Show plot
-#             save_filename = os.path.join('example' + str(example) + '.png')
-#             plt.savefig(save_filename)
-#
-# print("Completed training.")
+
+        inh_rate[:] = 50 * active_pixels / NUM_INPUT
+        model.push_var_to_device("inh", "rate")
+
+        input_rate[:] = (digit * 48) + 2
+        model.push_var_to_device("inp", "rate")
+
+        one_hot = np.zeros((NUM_CLASSES))
+        one_hot[y[example]] = 50
+        teacher_rate[:] = one_hot
+        print(teacher_rate)
+        model.push_var_to_device("teacher", "rate")
+
+        out_voltage[:] = 0.0
+        model.push_var_to_device('out', "V")
+
+    # Advance simulation
+    model.step_time()
+
+    for i, l in enumerate(list(neuron_layers.values())):
+        # Download spikes
+        model.pull_current_spikes_from_device(l.name)
+
+        # Add to data structure
+        spike_times = np.ones_like(l.current_spikes) * model.t
+        layer_spikes[i] = (np.hstack((layer_spikes[i][0], l.current_spikes)),
+                           np.hstack((layer_spikes[i][1], spike_times)))
+
+    # If this is the LAST timestep of presenting the example
+    if timestep_in_example == (PRESENT_TIMESTEPS - 1):
+
+        # Make a plot every 10th example
+        if example % 10 == 0:
+
+            print("Creating raster plot")
+
+            # Create a plot with axes for each
+            fig, axes = plt.subplots(len(neuron_layers), sharex=True)
+            fig.tight_layout(pad=2.0)
+
+            # Loop through axes and their corresponding neuron populations
+            for a, s, l in zip(axes, layer_spikes, list(neuron_layers.values())):
+                # Plot spikes
+                a.scatter(s[1], s[0], s=1)
+
+                # Set title, axis labels
+                a.set_title(l.name)
+                a.set_ylabel("Spike number")
+                a.set_xlim((example * PRESENT_TIMESTEPS, (example + 1) * PRESENT_TIMESTEPS))
+                a.set_ylim((-1, l.size + 1))
+
+            # Add an x-axis label
+            axes[-1].set_xlabel("Time [ms]")
+            # axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
+            #                 linestyle="--", color="gray", alpha=0.2)
+
+            # Show plot
+            save_filename = os.path.join('example' + str(example) + '.png')
+            plt.savefig(save_filename)
+
+print("Completed training.")
