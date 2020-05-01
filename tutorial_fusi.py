@@ -105,10 +105,8 @@ X, y = loadlocal_mnist(
     images_path=os.path.join(data_dir, 'train-images-idx3-ubyte'),
     labels_path=os.path.join(data_dir, 'train-labels-idx1-ubyte'))
 
-X = np.divide(X, 255)
-
-X = X[:100, :]
-y = y[:100]
+X = X[:1000, :]
+y = y[:1000]
 
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
@@ -159,7 +157,7 @@ inh2out = model.add_synapse_population(
 teacher2out = model.add_synapse_population(
     "teacher2out", "SPARSE_INDIVIDUALG", NO_DELAY,
     neuron_layers['teacher'], neuron_layers['out'],
-    "StaticPulse", {}, {"g": 0.5}, {}, {},
+    "StaticPulse", {}, {"g": 5.0}, {}, {},
     "DeltaCurr", {}, {}, init_connectivity("OneToOne", {}))
 
 # Build and load our model
@@ -175,6 +173,8 @@ input_rate = neuron_layers['inp'].vars['rate'].view
 inh_rate = neuron_layers['inh'].vars['rate'].view
 teacher_rate = neuron_layers['teacher'].vars['rate'].view
 
+all_spike_rates = []
+
 while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # Calculate the timestep within the presentation
     timestep_in_example = model.timestep % PRESENT_TIMESTEPS
@@ -186,11 +186,12 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         # init a data structure for plotting the raster plots for this example
         layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
 
-        if example % 10 == 0:
+        if example % 50 == 0:
             print("Example: " + str(example))
 
         # calculate the correct spiking rates for all populations
         digit = X[example, :].flatten()
+        digit = np.divide(digit, np.amax(digit))
         active_pixels = np.count_nonzero(digit)
 
         inh_rate[:] = 50 * active_pixels / NUM_INPUT
@@ -222,8 +223,16 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # If this is the LAST timestep of presenting the example
     if timestep_in_example == (PRESENT_TIMESTEPS - 1):
 
+        # Calculate spiking rate
+        for i, layer in enumerate(list(neuron_layers.keys())):
+
+            if layer == "out":
+                s = (len(layer_spikes[i][0]) / (PRESENT_TIMESTEPS / 1000))
+                print("Spike rate: " + str(s) + " Hz.")
+                all_spike_rates.append(s)
+
         # Make a plot every 10th example
-        if example % 10 == 0:
+        if example % 100 == 0:
 
             print("Creating raster plot")
 
@@ -250,5 +259,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
             # Show plot
             save_filename = os.path.join('example' + str(example) + '.png')
             plt.savefig(save_filename)
+
+print("Avg spiking rate: " + str(sum(all_spike_rates) / len(all_spike_rates)))
 
 print("Completed training.")
