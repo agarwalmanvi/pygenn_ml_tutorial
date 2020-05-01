@@ -107,8 +107,8 @@ X, y = loadlocal_mnist(
 
 X = np.divide(X, 255)
 
-X = X[:1, :]
-y = y[:1]
+X = X[:100, :]
+y = y[:100]
 
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
@@ -202,7 +202,6 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         one_hot = np.zeros((NUM_CLASSES))
         one_hot[y[example]] = 50
         teacher_rate[:] = one_hot
-        print(teacher_rate)
         model.push_var_to_device("teacher", "rate")
 
         out_voltage[:] = 0.0
