@@ -126,11 +126,12 @@ fusi_init = {"X": 0.0,
 fusi_post_init = {"C": 2.0}
 
 NUM_INPUT = X.shape[1]
+TEACHER_NUM = 1
 
 neurons_count = {"inp": NUM_INPUT,
                  "inh": 2000,
                  "out": NUM_CLASSES,
-                 "teacher": NUM_CLASSES}
+                 "teacher": NUM_CLASSES * TEACHER_NUM}
 
 neuron_layers = {}
 
@@ -154,11 +155,23 @@ inh2out = model.add_synapse_population(
     "StaticPulse", {}, {"g": -0.035}, {}, {},
     "DeltaCurr", {}, {})
 
+TEACHER_STRENGTH = 1.6
+
+teacher2out_mat = np.zeros((neurons_count["out"], neurons_count["teacher"]))
+for i in range(teacher2out_mat.shape[0]):
+    teacher2out_mat[i, i*TEACHER_NUM:(i+1)*TEACHER_NUM] = TEACHER_STRENGTH
+
+# teacher2out = model.add_synapse_population(
+#     "teacher2out", "SPARSE_INDIVIDUALG", NO_DELAY,
+#     neuron_layers['teacher'], neuron_layers['out'],
+#     "StaticPulse", {}, {"g": 5.0}, {}, {},
+#     "DeltaCurr", {}, {}, init_connectivity("OneToOne", {}))
+
 teacher2out = model.add_synapse_population(
-    "teacher2out", "SPARSE_INDIVIDUALG", NO_DELAY,
+    "teacher2out", "DENSE_INDIVIDUALG", NO_DELAY,
     neuron_layers['teacher'], neuron_layers['out'],
-    "StaticPulse", {}, {"g": 5.0}, {}, {},
-    "DeltaCurr", {}, {}, init_connectivity("OneToOne", {}))
+    "StaticPulse", {}, {"g": teacher2out_mat.flatten()}, {}, {},
+    "DeltaCurr", {}, {})
 
 # Build and load our model
 model.build()
@@ -174,6 +187,11 @@ inh_rate = neuron_layers['inh'].vars['rate'].view
 teacher_rate = neuron_layers['teacher'].vars['rate'].view
 
 all_spike_rates = []
+
+INH_V = 50
+INPUT_UNSTIM = 2
+INPUT_STIM = 50
+TEACHER_V = 150
 
 while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # Calculate the timestep within the presentation
@@ -194,14 +212,15 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         digit = np.divide(digit, np.amax(digit))
         active_pixels = np.count_nonzero(digit)
 
-        inh_rate[:] = 50 * active_pixels / NUM_INPUT
+        inh_rate[:] = INH_V * active_pixels / NUM_INPUT
         model.push_var_to_device("inh", "rate")
 
-        input_rate[:] = (digit * 48) + 2
+        input_rate[:] = (digit * (INPUT_STIM - INPUT_UNSTIM)) + INPUT_UNSTIM
         model.push_var_to_device("inp", "rate")
 
-        one_hot = np.zeros((NUM_CLASSES))
-        one_hot[y[example]] = 50
+        one_hot = np.zeros(NUM_CLASSES * TEACHER_NUM)
+        chosen_class = y[example]
+        one_hot[chosen_class*TEACHER_NUM:(chosen_class+1)*TEACHER_NUM] = TEACHER_V
         teacher_rate[:] = one_hot
         model.push_var_to_device("teacher", "rate")
 
@@ -231,7 +250,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
                 print("Spike rate: " + str(s) + " Hz.")
                 all_spike_rates.append(s)
 
-        # Make a plot every 10th example
+        # Make a plot every 100th example
         if example % 100 == 0:
 
             print("Creating raster plot")
