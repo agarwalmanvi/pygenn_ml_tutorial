@@ -59,10 +59,10 @@ fusi_model = create_custom_weight_update_class(
     "fusi_model",
     param_names=["tauC", "a", "b", "thetaV", "thetaLUp", "thetaLDown", "thetaHUp", "thetaHDown",
                  "thetaX", "alpha", "beta", "Xmax", "Xmin", "JC", "Jplus", "Jminus"],
-    var_name_types=[("X", "scalar"), ("last_tpre", "scalar")],
+    var_name_types=[("X", "scalar"), ("last_tpre", "scalar"), ("g", "scalar")],
     post_var_name_types=[("C", "scalar")],
     sim_code="""
-    $(addToInSyn, ($(X) > $(thetaX)) ? $(Jplus) : $(Jminus));
+    $(addToInSyn, $(g));
     const scalar dt = $(t) - $(sT_post);
     const scalar decayC = $(C) * exp(-dt / $(tauC));
     if ($(V_post) > $(thetaV) && $(thetaLUp) < decayC && decayC < $(thetaHUp)) {
@@ -81,6 +81,7 @@ fusi_model = create_custom_weight_update_class(
         }
     }
     $(X) = fmin($(Xmax), fmax($(Xmin), $(X)));
+    $(g) = ($(X) > $(thetaX)) ? $(Jplus) : $(Jminus);
     $(last_tpre) = $(t);
     """,
     post_spike_code="""
@@ -105,9 +106,6 @@ X, y = loadlocal_mnist(
     images_path=os.path.join(data_dir, 'train-images-idx3-ubyte'),
     labels_path=os.path.join(data_dir, 'train-labels-idx1-ubyte'))
 
-X = X[:1000, :]
-y = y[:1000]
-
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
 
@@ -122,7 +120,8 @@ model.dT = TIMESTEP
 if_init = {"V": 0.0}
 poisson_init = {"rate": 1.0}
 fusi_init = {"X": 0.0,
-             "last_tpre": 0.0}
+             "last_tpre": 0.0,
+             "g": 0.0}
 fusi_post_init = {"C": 2.0}
 
 NUM_INPUT = X.shape[1]
@@ -161,12 +160,6 @@ teacher2out_mat = np.zeros((neurons_count["out"], neurons_count["teacher"]))
 for i in range(teacher2out_mat.shape[0]):
     teacher2out_mat[i, i*TEACHER_NUM:(i+1)*TEACHER_NUM] = TEACHER_STRENGTH
 
-# teacher2out = model.add_synapse_population(
-#     "teacher2out", "SPARSE_INDIVIDUALG", NO_DELAY,
-#     neuron_layers['teacher'], neuron_layers['out'],
-#     "StaticPulse", {}, {"g": 5.0}, {}, {},
-#     "DeltaCurr", {}, {}, init_connectivity("OneToOne", {}))
-
 teacher2out = model.add_synapse_population(
     "teacher2out", "DENSE_INDIVIDUALG", NO_DELAY,
     neuron_layers['teacher'], neuron_layers['out'],
@@ -204,7 +197,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         # init a data structure for plotting the raster plots for this example
         layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
 
-        if example % 50 == 0:
+        if example % 100 == 0:
             print("Example: " + str(example))
 
         # calculate the correct spiking rates for all populations
@@ -247,11 +240,10 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
             if layer == "out":
                 s = (len(layer_spikes[i][0]) / (PRESENT_TIMESTEPS / 1000))
-                print("Spike rate: " + str(s) + " Hz.")
                 all_spike_rates.append(s)
 
-        # Make a plot every 100th example
-        if example % 100 == 0:
+        # Make a plot every 5000th example
+        if example % 5000 == 0:
 
             print("Creating raster plot")
 
@@ -281,4 +273,12 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
 print("Avg spiking rate: " + str(sum(all_spike_rates) / len(all_spike_rates)))
 
+np.save("spike_rates", all_spike_rates)
+
 print("Completed training.")
+
+model.pull_var_from_device(inp2out.name, "g")
+weight_values = inp2out.get_var_values("g")
+print(type(weight_values))
+print(weight_values.shape)
+np.save("fusi.npy", weight_values)
