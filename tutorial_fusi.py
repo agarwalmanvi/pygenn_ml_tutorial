@@ -8,6 +8,7 @@ from pygenn.genn_wrapper import NO_DELAY
 from mlxtend.data import loadlocal_mnist
 import math
 import matplotlib.pyplot as plt
+import pickle as pkl
 
 # ----------------------------------------------------------------------------
 # Parameters
@@ -216,6 +217,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         input_rate[:] = (digit * (INPUT_STIM - INPUT_UNSTIM)) + INPUT_UNSTIM
         model.push_var_to_device("inp", "rate")
 
+        # TODO fix spike rate for teacher neurons
         one_hot = np.zeros(NUM_CLASSES * TEACHER_NUM)
         chosen_class = y[example]
         one_hot[chosen_class*TEACHER_NUM:(chosen_class+1)*TEACHER_NUM] = TEACHER_V
@@ -278,7 +280,8 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
 print("Avg spiking rate: " + str(sum(all_spike_rates) / len(all_spike_rates)))
 
-np.save("spike_rates", all_spike_rates)
+with open('spike_rates.pkl', 'wb') as f:
+    pkl.dump(spike_rates, f)
 
 print("Completed training.")
 
