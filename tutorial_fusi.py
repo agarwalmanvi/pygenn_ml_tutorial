@@ -24,7 +24,6 @@ TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 300
 INPUT_CURRENT_SCALE = 1.0 / 100.0
 OUTPUT_CURRENT_SCALE = 10.0
-NUM_CLASSES = 10
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -116,21 +115,24 @@ print("Loading training labels of size: " + str(y.shape))
 model = GeNNModel("float", "tutorial_1")
 model.dT = TIMESTEP
 
-# Initial values for initialisation
+NUM_INPUT = X.shape[1]
+NUM_CLASSES = len(np.unique(y))
+TEACHER_NUM = 1
+OUTPUT_NEURON_NUM = 15
+
+neurons_count = {"inp": NUM_INPUT,
+                 "inh": 2000,
+                 "out": NUM_CLASSES * OUTPUT_NEURON_NUM,
+                 "teacher": NUM_CLASSES * TEACHER_NUM}
+
+# Values for initialisation of parameters in different models
+g_init = np.random.choice(2, (NUM_INPUT, NUM_CLASSES))
 if_init = {"V": 0.0}
 poisson_init = {"rate": 1.0}
 fusi_init = {"X": 0.0,
              "last_tpre": 0.0,
-             "g": 0.0}
+             "g": g_init.fltten()}
 fusi_post_init = {"C": 2.0}
-
-NUM_INPUT = X.shape[1]
-TEACHER_NUM = 1
-
-neurons_count = {"inp": NUM_INPUT,
-                 "inh": 2000,
-                 "out": NUM_CLASSES,
-                 "teacher": NUM_CLASSES * TEACHER_NUM}
 
 neuron_layers = {}
 
@@ -142,12 +144,14 @@ for k in neurons_count.keys():
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
                                                        poisson_model, {}, poisson_init)
 
+# fully connected input to output
 inp2out = model.add_synapse_population(
     "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
     neuron_layers['inp'], neuron_layers['out'],
     fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
     "DeltaCurr", {}, {})
 
+# fully connected inhibitory to output
 inh2out = model.add_synapse_population(
     "inh2out", "DENSE_INDIVIDUALG", NO_DELAY,
     neuron_layers['inh'], neuron_layers['out'],
@@ -156,6 +160,7 @@ inh2out = model.add_synapse_population(
 
 TEACHER_STRENGTH = 1.6
 
+# TODO each group of output neurons is fully connected to its corresponding group of teacher neurons
 teacher2out_mat = np.zeros((neurons_count["out"], neurons_count["teacher"]))
 for i in range(teacher2out_mat.shape[0]):
     teacher2out_mat[i, i*TEACHER_NUM:(i+1)*TEACHER_NUM] = TEACHER_STRENGTH
