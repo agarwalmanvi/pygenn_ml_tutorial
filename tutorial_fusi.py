@@ -161,10 +161,13 @@ inh2out = model.add_synapse_population(
 
 TEACHER_STRENGTH = 1.6
 
-# TODO each group of output neurons is fully connected to its corresponding group of teacher neurons
 teacher2out_mat = np.zeros((neurons_count["out"], neurons_count["teacher"]))
+fill_idx = [(i*TEACHER_NUM, (i+1)*TEACHER_NUM) for i in range(NUM_CLASSES)]
+counter = 0
 for i in range(teacher2out_mat.shape[0]):
-    teacher2out_mat[i, i*TEACHER_NUM:(i+1)*TEACHER_NUM] = TEACHER_STRENGTH
+    teacher2out_mat[i, fill_idx[counter][0]:fill_idx[counter][1]] = TEACHER_STRENGTH
+    if (i+1) % OUTPUT_NEURON_NUM == 0:
+        counter += 1
 
 teacher2out = model.add_synapse_population(
     "teacher2out", "DENSE_INDIVIDUALG", NO_DELAY,
