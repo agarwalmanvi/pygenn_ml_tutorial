@@ -220,8 +220,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         input_rate[:] = (digit * (INPUT_STIM - INPUT_UNSTIM)) + INPUT_UNSTIM
         model.push_var_to_device("inp", "rate")
 
-        # TODO fix spike rate for teacher neurons
-        one_hot = np.zeros(NUM_CLASSES * TEACHER_NUM)
+        one_hot = np.zeros(neurons_count["teacher"])
         chosen_class = y[example]
         one_hot[chosen_class*TEACHER_NUM:(chosen_class+1)*TEACHER_NUM] = TEACHER_V
         teacher_rate[:] = one_hot
