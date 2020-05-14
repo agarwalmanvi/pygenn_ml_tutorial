@@ -10,3 +10,4 @@ weights
 fusi_data
 !fusi_data/LTP/*
 *.pkl
+.idea
