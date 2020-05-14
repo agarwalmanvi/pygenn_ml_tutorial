@@ -1,12 +1,10 @@
 import numpy as np
-import csv
 import os
 from pygenn.genn_model import (create_custom_neuron_class,
                                create_custom_current_source_class, create_custom_weight_update_class,
                                GeNNModel, init_var, init_connectivity)
 from pygenn.genn_wrapper import NO_DELAY
 from mlxtend.data import loadlocal_mnist
-import math
 import matplotlib.pyplot as plt
 import pickle as pkl
 
@@ -92,12 +90,6 @@ fusi_model = create_custom_weight_update_class(
     is_post_spike_time_required=True
 )
 
-# Current source model which injects current with a magnitude specified by a state variable
-cs_model = create_custom_current_source_class(
-    "cs_model",
-    var_name_types=[("magnitude", "scalar")],
-    injection_code="$(injectCurrent, $(magnitude));")
-
 # ----------------------------------------------------------------------------
 # Import training data
 # ----------------------------------------------------------------------------
@@ -132,7 +124,7 @@ if_init = {"V": 0.0}
 poisson_init = {"rate": 1.0}
 fusi_init = {"X": 0.0,
              "last_tpre": 0.0,
-             "g": g_init.fltten()}
+             "g": g_init.flatten()}
 fusi_post_init = {"C": 2.0}
 
 neuron_layers = {}
@@ -283,7 +275,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 print("Avg spiking rate: " + str(sum(all_spike_rates) / len(all_spike_rates)))
 
 with open('spike_rates.pkl', 'wb') as f:
-    pkl.dump(spike_rates, f)
+    pkl.dump(all_spike_rates, f)
 
 print("Completed training.")
 

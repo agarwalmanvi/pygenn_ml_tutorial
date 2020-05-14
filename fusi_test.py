@@ -18,7 +18,6 @@ IF_PARAMS = {"Vtheta": 1.0,
              "Vreset": 0.0}
 TIMESTEP = 1.0
 PRESENT_TIMESTEPS = 300
-NUM_CLASSES = 10
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -74,10 +73,12 @@ if_init = {"V": 0.0,
 poisson_init = {"rate": 1.0}
 
 NUM_INPUT = X.shape[1]
+NUM_CLASSES = len(np.unique(y))
+OUTPUT_NEURON_NUM = 10
 
 neurons_count = {"inp": NUM_INPUT,
                  "inh": 2000,
-                 "out": NUM_CLASSES}
+                 "out": NUM_CLASSES * OUTPUT_NEURON_NUM}
 
 neuron_layers = {}
 
@@ -89,7 +90,7 @@ for k in neurons_count.keys():
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
                                                        poisson_model, {}, poisson_init)
 
-inp2out_w = np.load("fusi.npy")
+inp2out_w = np.load("fusi_10.npy")
 
 inp2out = model.add_synapse_population(
     "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
