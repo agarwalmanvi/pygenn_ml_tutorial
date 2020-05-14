@@ -8,6 +8,5 @@ imgs
 weights
 .ipynb_checkpoints
 fusi_data
-!fusi_data/LTP/*
 *.pkl
 .idea
