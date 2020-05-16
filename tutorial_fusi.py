@@ -9,6 +9,11 @@ import matplotlib.pyplot as plt
 import pickle as pkl
 from collections import Counter
 
+# TODO Parameters to vary:
+# Teacher strength
+# presentation time
+# no. of teacher neurons
+
 # ----------------------------------------------------------------------------
 # Parameters
 # ----------------------------------------------------------------------------
