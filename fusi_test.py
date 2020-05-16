@@ -57,6 +57,9 @@ X, y = loadlocal_mnist(
     images_path=os.path.join(data_dir, 't10k-images-idx3-ubyte'),
     labels_path=os.path.join(data_dir, 't10k-labels-idx1-ubyte'))
 
+X = X[:20, :]
+y = y[:20]
+
 print("Loading testing images of size: " + str(X.shape))
 print("Loading testing labels of size: " + str(y.shape))
 
@@ -73,8 +76,8 @@ if_init = {"V": 0.0,
 poisson_init = {"rate": 1.0}
 
 NUM_INPUT = X.shape[1]
-NUM_CLASSES = len(np.unique(y))
-OUTPUT_NEURON_NUM = 10
+NUM_CLASSES = 10
+OUTPUT_NEURON_NUM = 15
 
 neurons_count = {"inp": NUM_INPUT,
                  "inh": 2000,
@@ -90,7 +93,7 @@ for k in neurons_count.keys():
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
                                                        poisson_model, {}, poisson_init)
 
-inp2out_w = np.load("fusi_10.npy")
+inp2out_w = np.load("fusi_80_15_0.08.npy")
 
 inp2out = model.add_synapse_population(
     "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
@@ -134,8 +137,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # If this is the first timestep of presenting the example
     if timestep_in_example == 0:
 
-        if example % 100 == 0:
-            print("Example: " + str(example))
+        print("Example: " + str(example))
 
         # calculate the correct spiking rates for all populations
         digit = X[example, :].flatten()
@@ -151,6 +153,9 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         out_voltage[:] = 0.0
         model.push_var_to_device('out', "V")
 
+        output_spike_count[:] = 0
+        model.push_var_to_device("out", "SpikeCount")
+
     # Advance simulation
     model.step_time()
 
@@ -158,8 +163,12 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     if timestep_in_example == (PRESENT_TIMESTEPS - 1):
 
         model.pull_var_from_device("out", "SpikeCount")
-        predicted_label = np.argmax(output_spike_count)
+
         true_label = y[example]
+        classwise_total_spikes = np.add.reduceat(output_spike_count,
+                                                 np.arange(0, len(output_spike_count), OUTPUT_NEURON_NUM))
+        print(classwise_total_spikes)
+        predicted_label = np.argmax(classwise_total_spikes)
 
         print("\tExample=%u, true label=%u, predicted label=%u" % (example,
                                                                    true_label,
@@ -167,5 +176,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
 
         if predicted_label == true_label:
             num_correct += 1
+
+        print("\n")
 
 print("Accuracy %f%%" % ((num_correct / float(X.shape[0])) * 100.0))
