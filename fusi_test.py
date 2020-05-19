@@ -17,7 +17,7 @@ IF_PARAMS = {"Vtheta": 1.0,
              "Vrest": 0.0,
              "Vreset": 0.0}
 TIMESTEP = 1.0
-PRESENT_TIMESTEPS = 300
+PRESENT_TIMESTEPS = 100
 
 # ----------------------------------------------------------------------------
 # Custom GeNN models
@@ -80,7 +80,7 @@ NUM_CLASSES = 10
 OUTPUT_NEURON_NUM = 15
 
 neurons_count = {"inp": NUM_INPUT,
-                 "inh": 2000,
+                 "inh": 1000,
                  "out": NUM_CLASSES * OUTPUT_NEURON_NUM}
 
 neuron_layers = {}
@@ -93,7 +93,7 @@ for k in neurons_count.keys():
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
                                                        poisson_model, {}, poisson_init)
 
-inp2out_w = np.load("fusi_80_15_0.08.npy")
+inp2out_w = np.load("fusi_750.npy")
 
 inp2out = model.add_synapse_population(
     "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
@@ -125,7 +125,6 @@ all_spike_rates = []
 INH_V = 50
 INPUT_UNSTIM = 2
 INPUT_STIM = 50
-TEACHER_V = 150
 
 num_correct = 0
 
@@ -138,6 +137,8 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     if timestep_in_example == 0:
 
         print("Example: " + str(example))
+
+        layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
 
         # calculate the correct spiking rates for all populations
         digit = X[example, :].flatten()
@@ -159,8 +160,41 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # Advance simulation
     model.step_time()
 
+    for idx, layer in enumerate(neuron_layers):
+        # Download spikes
+        model.pull_current_spikes_from_device(layer)
+
+        # Add to data structure
+        spike_times = np.ones_like(neuron_layers[layer].current_spikes) * model.t
+        layer_spikes[idx] = (np.hstack((layer_spikes[idx][0], neuron_layers[layer].current_spikes)),
+                           np.hstack((layer_spikes[idx][1], spike_times)))
+
     # If this is the LAST timestep of presenting the example
     if timestep_in_example == (PRESENT_TIMESTEPS - 1):
+
+        # Create a plot with axes for each
+        fig, axes = plt.subplots(len(neuron_layers), sharex=True)
+        fig.tight_layout(pad=2.0)
+
+        # Loop through axes and their corresponding neuron populations
+        for a, s, l in zip(axes, layer_spikes, list(neuron_layers.values())):
+            # Plot spikes
+            a.scatter(s[1], s[0], s=1)
+
+            # Set title, axis labels
+            a.set_title(l.name)
+            a.set_ylabel("Spike number")
+            a.set_xlim((example * PRESENT_TIMESTEPS, (example + 1) * PRESENT_TIMESTEPS))
+            a.set_ylim((-1, l.size + 1))
+
+        # Add an x-axis label
+        axes[-1].set_xlabel("Time [ms]")
+        # axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
+        #                 linestyle="--", color="gray", alpha=0.2)
+
+        # Show plot
+        save_filename = os.path.join('example' + str(example) + '.png')
+        plt.savefig(save_filename)
 
         model.pull_var_from_device("out", "SpikeCount")
 
