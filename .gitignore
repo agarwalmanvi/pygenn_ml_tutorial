@@ -11,3 +11,4 @@ fusi_data
 *.pkl
 .idea
 weights
+no_teacher

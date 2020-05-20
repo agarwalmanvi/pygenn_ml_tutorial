@@ -104,8 +104,8 @@ X, y = loadlocal_mnist(
     images_path=os.path.join(data_dir, 'train-images-idx3-ubyte'),
     labels_path=os.path.join(data_dir, 'train-labels-idx1-ubyte'))
 
-X = X[:100, :]
-y = y[:100]
+X = X[:1000, :]
+y = y[:1000]
 
 print("Loading training images of size: " + str(X.shape))
 print("Loading training labels of size: " + str(y.shape))
@@ -118,22 +118,29 @@ model = GeNNModel("float", "tutorial_1")
 model.dT = TIMESTEP
 
 NUM_INPUT = X.shape[1]
-NUM_CLASSES = len(np.unique(y))
-TEACHER_NUM = 50
+NUM_CLASSES = 10
+TEACHER_NUM = 150
 OUTPUT_NEURON_NUM = 15
 
-neurons_count = {"inp": NUM_INPUT,
-                 "inh": 1000,
-                 "out": NUM_CLASSES * OUTPUT_NEURON_NUM,
+# neurons_count = {"inp": NUM_INPUT,
+#                  "inh": 1000,
+#                  "out": NUM_CLASSES * OUTPUT_NEURON_NUM,
+#                  "teacher": NUM_CLASSES * TEACHER_NUM}
+
+neurons_count = {"out": NUM_CLASSES * OUTPUT_NEURON_NUM,
                  "teacher": NUM_CLASSES * TEACHER_NUM}
 
 # Values for initialisation of parameters in different models
 if_init = {"V": 0.0}
 poisson_init = {"rate": 1.0}
 
+# fusi_init = {"X": 0.0,
+#              "last_tpre": 0.0,
+#              "g": np.random.choice(2, (neurons_count["inp"], neurons_count["out"])).flatten()}
+
 fusi_init = {"X": 0.0,
              "last_tpre": 0.0,
-             "g": np.random.choice(2, (neurons_count["inp"], neurons_count["out"])).flatten()}
+             "g": 0.0}
 fusi_post_init = {"C": 2.0}
 
 neuron_layers = {}
@@ -146,23 +153,25 @@ for k in neurons_count.keys():
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
                                                        poisson_model, {}, poisson_init)
 
-# fully connected input to output
-inp2out = model.add_synapse_population(
-    "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
-    neuron_layers['inp'], neuron_layers['out'],
-    fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
-    "DeltaCurr", {}, {})
+# # fully connected input to output
+# inp2out = model.add_synapse_population(
+#     "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
+#     neuron_layers['inp'], neuron_layers['out'],
+#     fusi_model, FUSI_PARAMS, fusi_init, {}, fusi_post_init,
+#     "DeltaCurr", {}, {})
+#
+# # fully connected inhibitory to output
+# inh2out = model.add_synapse_population(
+#     "inh2out", "DENSE_INDIVIDUALG", NO_DELAY,
+#     neuron_layers['inh'], neuron_layers['out'],
+#     "StaticPulse", {}, {"g": -0.035}, {}, {},
+#     "DeltaCurr", {}, {})
 
-# fully connected inhibitory to output
-inh2out = model.add_synapse_population(
-    "inh2out", "DENSE_INDIVIDUALG", NO_DELAY,
-    neuron_layers['inh'], neuron_layers['out'],
-    "StaticPulse", {}, {"g": -0.035}, {}, {},
-    "DeltaCurr", {}, {})
+TEACHER_STRENGTH = 0.009
+TEACHER_UNSTIM_STRENGTH = 0.0025
 
-TEACHER_STRENGTH = 0.1
-
-teacher2out_mat = np.zeros((neurons_count["out"], neurons_count["teacher"]))
+# teacher2out_mat = np.zeros((neurons_count["out"], neurons_count["teacher"]))
+teacher2out_mat = np.full((neurons_count["out"], neurons_count["teacher"]), TEACHER_UNSTIM_STRENGTH)
 fill_idx = [(i*TEACHER_NUM, (i+1)*TEACHER_NUM) for i in range(NUM_CLASSES)]
 counter = 0
 for i in range(teacher2out_mat.shape[0]):
@@ -186,16 +195,17 @@ model.load()
 # ----------------------------------------------------------------------------
 # Get views to efficiently access state variables
 out_voltage = neuron_layers['out'].vars['V'].view
-input_rate = neuron_layers['inp'].vars['rate'].view
-inh_rate = neuron_layers['inh'].vars['rate'].view
+# input_rate = neuron_layers['inp'].vars['rate'].view
+# inh_rate = neuron_layers['inh'].vars['rate'].view
 teacher_rate = neuron_layers['teacher'].vars['rate'].view
 
-all_spike_rates = []
+non_target_spike_rates = []
+target_spike_rates = []
 
 INH_V = 50
 INPUT_UNSTIM = 2
 INPUT_STIM = 50
-TEACHER_V = 150
+TEACHER_V = 50
 
 while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
     # Calculate the timestep within the presentation
@@ -208,7 +218,7 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         # init a data structure for plotting the raster plots for this example
         layer_spikes = [(np.empty(0), np.empty(0)) for _ in enumerate(neuron_layers)]
 
-        if example % 100 == 0:
+        if example % 10 == 0:
             print("Example: " + str(example))
 
         # calculate the correct spiking rates for all populations
@@ -216,11 +226,11 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         digit = np.divide(digit, np.amax(digit))
         active_pixels = np.count_nonzero(digit)
 
-        inh_rate[:] = INH_V * active_pixels / NUM_INPUT
-        model.push_var_to_device("inh", "rate")
-
-        input_rate[:] = (digit * (INPUT_STIM - INPUT_UNSTIM)) + INPUT_UNSTIM
-        model.push_var_to_device("inp", "rate")
+        # inh_rate[:] = INH_V * active_pixels / NUM_INPUT
+        # model.push_var_to_device("inh", "rate")
+        #
+        # input_rate[:] = (digit * (INPUT_STIM - INPUT_UNSTIM)) + INPUT_UNSTIM
+        # model.push_var_to_device("inp", "rate")
 
         one_hot = np.zeros(neurons_count["teacher"])
         chosen_class = y[example]
@@ -250,51 +260,78 @@ while model.timestep < (PRESENT_TIMESTEPS * X.shape[0]):
         for i, layer in enumerate(neuron_layers):
 
             if layer == "out":
-                chosen_idx = list(range(chosen_class*OUTPUT_NEURON_NUM,(chosen_class+1)*OUTPUT_NEURON_NUM))
-                class_Counter = Counter(layer_spikes[i][0])
-                total_spikes = 0
-                for idx in chosen_idx:
-                    total_spikes += class_Counter[idx]
-                s = (total_spikes / ((PRESENT_TIMESTEPS * OUTPUT_NEURON_NUM) / 1000))
-                all_spike_rates.append(s)
+                chosen_idx = list(range(chosen_class * OUTPUT_NEURON_NUM, (chosen_class + 1) * OUTPUT_NEURON_NUM))
+                output_Counter = Counter(layer_spikes[i][0])
+                counter = 0
+                non_target_spiking = 0
+                target_spiking = 0
+                for n in range(neurons_count["out"]):
+                    if n in chosen_idx:
+                        if n in output_Counter:
+                            target_spiking += output_Counter[n]
+                    else:
+                        if n in output_Counter:
+                            non_target_spiking += output_Counter[n]
 
-                print("Avg spiking rate for neurons of chosen output class (" + str(chosen_class) + ") : " + str(s) + " Hz")
+                non_target_rate = (non_target_spiking / (PRESENT_TIMESTEPS / 1000)) / (OUTPUT_NEURON_NUM * (NUM_CLASSES - 1))
+                target_rate = (target_spiking / (PRESENT_TIMESTEPS / 1000)) / (OUTPUT_NEURON_NUM)
+
+                # print("Target neuron spiking rate: " + str(target_rate) + " Hz.")
+                # print("Non-target neuron spiking rate: " + str(non_target_rate) + " Hz.")
+
+                non_target_spike_rates.append(non_target_rate)
+                target_spike_rates.append(target_rate)
+
+                # chosen_idx = list(range(chosen_class*OUTPUT_NEURON_NUM,(chosen_class+1)*OUTPUT_NEURON_NUM))
+                # class_Counter = Counter(layer_spikes[i][0])
+                # total_spikes = 0
+                # for idx in chosen_idx:
+                #     total_spikes += class_Counter[idx]
+                # s = (total_spikes / ((PRESENT_TIMESTEPS * OUTPUT_NEURON_NUM) / 1000))
+                # all_spike_rates.append(s)
+                #
+                # print("Avg spiking rate for neurons of chosen output class (" + str(chosen_class) + ") : " + str(s) + " Hz")
+                #
+                # print(layer_spikes[i][0])
 
         # Make a plot every 10th example
-        if example % 10 == 0:
+        # if example % 10 == 0:
+        #
+        #     print("Creating raster plot")
+        #
+        #     # Create a plot with axes for each
+        #     fig, axes = plt.subplots(len(neuron_layers), sharex=True)
+        #     fig.tight_layout(pad=2.0)
+        #
+        #     # Loop through axes and their corresponding neuron populations
+        #     for a, s, l in zip(axes, layer_spikes, list(neuron_layers.values())):
+        #         # Plot spikes
+        #         a.scatter(s[1], s[0], s=1)
+        #
+        #         # Set title, axis labels
+        #         a.set_title(l.name)
+        #         a.set_ylabel("Spike number")
+        #         a.set_xlim((example * PRESENT_TIMESTEPS, (example + 1) * PRESENT_TIMESTEPS))
+        #         a.set_ylim((-1, l.size + 1))
+        #
+        #     # Add an x-axis label
+        #     axes[-1].set_xlabel("Time [ms]")
+        #     # axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
+        #     #                 linestyle="--", color="gray", alpha=0.2)
+        #
+        #     # Show plot
+        #     save_filename = os.path.join('example' + str(example) + 'a.png')
+        #     plt.savefig(save_filename)
 
-            print("Creating raster plot")
-
-            # Create a plot with axes for each
-            fig, axes = plt.subplots(len(neuron_layers), sharex=True)
-            fig.tight_layout(pad=2.0)
-
-            # Loop through axes and their corresponding neuron populations
-            for a, s, l in zip(axes, layer_spikes, list(neuron_layers.values())):
-                # Plot spikes
-                a.scatter(s[1], s[0], s=1)
-
-                # Set title, axis labels
-                a.set_title(l.name)
-                a.set_ylabel("Spike number")
-                a.set_xlim((example * PRESENT_TIMESTEPS, (example + 1) * PRESENT_TIMESTEPS))
-                a.set_ylim((-1, l.size + 1))
-
-            # Add an x-axis label
-            axes[-1].set_xlabel("Time [ms]")
-            # axes[-1].hlines(testing_labels[0], xmin=0, xmax=PRESENT_TIMESTEPS,
-            #                 linestyle="--", color="gray", alpha=0.2)
-
-            # Show plot
-            save_filename = os.path.join('example' + str(example) + '.png')
-            plt.savefig(save_filename)
-
-print("Avg spiking rate: " + str(sum(all_spike_rates) / len(all_spike_rates)))
+# print("Avg spiking rate: " + str(sum(all_spike_rates) / len(all_spike_rates)))
 
 # with open('spike_rates.pkl', 'wb') as f:
 #     pkl.dump(all_spike_rates, f)
 
 print("Completed training.")
+
+print("Target neuron spiking rate: " + str(sum(target_spike_rates) / len(target_spike_rates)) + " Hz.")
+print("Non-target neuron spiking rate: " + str(sum(non_target_spike_rates) / len(non_target_spike_rates)) + " Hz.")
 
 # model.pull_var_from_device(inp2out.name, "g")
 # weight_values = inp2out.get_var_values("g")
