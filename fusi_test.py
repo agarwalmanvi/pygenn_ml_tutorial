@@ -80,7 +80,7 @@ NUM_CLASSES = 10
 OUTPUT_NEURON_NUM = 15
 
 neurons_count = {"inp": NUM_INPUT,
-                 "inh": 1000,
+                 "inh": NUM_INPUT / 4,
                  "out": NUM_CLASSES * OUTPUT_NEURON_NUM}
 
 neuron_layers = {}
@@ -93,7 +93,7 @@ for k in neurons_count.keys():
         neuron_layers[k] = model.add_neuron_population(k, neurons_count[k],
                                                        poisson_model, {}, poisson_init)
 
-inp2out_w = np.load("fusi_750.npy")
+inp2out_w = np.load("fusi_new6.npy")
 
 inp2out = model.add_synapse_population(
     "inp2out", "DENSE_INDIVIDUALG", NO_DELAY,
